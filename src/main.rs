@@ -670,7 +670,7 @@ impl FaceElement for HeartEyes {
         // Draw one heart positioned at the eye location (will be mirrored by draw_pixel_fn)
         // Using cord_y_d position from DefaultEyes, adjusted down 2 rows and back 5 columns
         let cx = 13.0 + offset_x;  // 18.0 - 5.0
-        let cy = 26.0 + offset_y;  // 24.0 + 2.0
+        let cy = 22.0 + offset_y;  // 24.0 - 2.0 (Y decreases going down on rotated display)
 
         for x in 1..=PANEL_WIDTH {
             let mut color = context.time_counter + (x as f64) * 5.0;
@@ -718,7 +718,7 @@ impl FaceElement for XEyes {
         // Draw one X positioned at the eye location (will be mirrored by draw_pixel_fn)
         // Using cord_y_d position from DefaultEyes, adjusted down 2 rows and back 5 columns
         let cx = 13.0 + offset_x;  // 18.0 - 5.0
-        let cy = 26.0 + offset_y;  // 24.0 + 2.0
+        let cy = 22.0 + offset_y;  // 24.0 - 2.0 (Y decreases going down on rotated display)
 
         for x in 1..=PANEL_WIDTH {
             let mut color = context.time_counter + (x as f64) * 5.0;
@@ -767,7 +767,7 @@ impl FaceElement for OEyes {
         // Draw one circle positioned at the eye location (will be mirrored by draw_pixel_fn)
         // Using cord_y_d position from DefaultEyes, adjusted down 2 rows and back 5 columns
         let cx = 13.0 + offset_x;  // 18.0 - 5.0
-        let cy = 26.0 + offset_y;  // 24.0 + 2.0
+        let cy = 22.0 + offset_y;  // 24.0 - 2.0 (Y decreases going down on rotated display)
 
         for x in 1..=PANEL_WIDTH {
             let mut color = context.time_counter + (x as f64) * 5.0;

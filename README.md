@@ -412,6 +412,7 @@ Create accessories that layer on top of the base face:
 
 ```rust
 struct Blush {
+    time: f64,
     intensity: f64,
 }
 
@@ -419,9 +420,10 @@ impl FaceElement for Blush {
     fn name(&self) -> &str { "Blush" }
     fn category(&self) -> ElementCategory { ElementCategory::Accessory }
 
-    fn update(&mut self, _shared_state: &mut SharedFaceState, _dt: f64) {
-        // Pulse blush intensity
-        self.intensity = (self.intensity + 0.05).sin().abs();
+    fn update(&mut self, _shared_state: &mut SharedFaceState, dt: f64) {
+        // Pulse blush intensity smoothly over time
+        self.time += dt;
+        self.intensity = (self.time * 2.0).sin().abs();
     }
 
     fn render(&self, canvas: &mut LedCanvas, context: &RenderContext,
