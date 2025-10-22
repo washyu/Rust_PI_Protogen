@@ -101,24 +101,23 @@ struct PixelDrawer;
 impl DrawPixelFn for PixelDrawer {
     fn draw(&self, canvas: &mut LedCanvas, bright_f: f64, color_index: f64,
             x: i32, y: i32, brightness: f64, palette: ColorPalette) {
-        // Rotate 180 degrees: new_x = width - x, new_y = height - y
-        let rotated_x = PANEL_WIDTH - x;
-        let rotated_y = PANEL_HEIGHT - 1 - y;
+        // Flip vertically only
+        let flipped_y = PANEL_HEIGHT - 1 - y;
 
-        if rotated_x < 0 || rotated_x >= PANEL_WIDTH || rotated_y < 0 || rotated_y >= PANEL_HEIGHT {
+        if x < 0 || x >= PANEL_WIDTH || flipped_y < 0 || flipped_y >= PANEL_HEIGHT {
             return;
         }
 
         let adjusted_brightness = bright_f * brightness;
         let color = get_shimmer_color(color_index, adjusted_brightness, palette);
 
-        // Draw on left panel
-        canvas.set(rotated_x, rotated_y, &color);
+        // Draw on left panel (vertically flipped)
+        canvas.set(x, flipped_y, &color);
 
-        // Mirror on right panel
-        let mirror_x = (PANEL_WIDTH * 2) - 1 - rotated_x;
+        // Mirror on right panel (also vertically flipped)
+        let mirror_x = (PANEL_WIDTH * 2) - 1 - x;
         if mirror_x >= PANEL_WIDTH && mirror_x < PANEL_WIDTH * 2 {
-            canvas.set(mirror_x, rotated_y, &color);
+            canvas.set(mirror_x, flipped_y, &color);
         }
     }
 }
