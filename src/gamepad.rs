@@ -180,3 +180,18 @@ pub trait CycleEyes {
     fn cycle_eyes_forward(&mut self);
     fn cycle_eyes_backward(&mut self);
 }
+
+/// Print the gamepad control mapping to console
+pub fn print_control_mapping() {
+    println!("\n📋 Gamepad Controls:");
+    println!("  A/X       - Toggle microphone mute");
+    println!("  B/Circle  - Toggle manual breathing");
+    println!("  Y/Triangle- Toggle blinking");
+    println!("  X/Square  - Cycle color palette");
+    println!("  D-Pad ↑↓  - Adjust brightness");
+    println!("  D-Pad ←→  - Cycle eye styles");
+    println!("  L Trigger - Open mouth (hold)");
+    println!("  R Trigger - Close mouth (hold)");
+    println!("  Start (short) - Play video / Next video");
+    println!("  Start (long)  - Exit video mode\n");
+}
