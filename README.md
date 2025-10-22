@@ -132,6 +132,7 @@ Control your protogen mask in real-time with a Bluetooth gamepad:
 | **X / Square** | Cycle Color Palette | Switch between Forest, Fire, Ocean, Purple, Rainbow |
 | **D-Pad Up** | Increase Brightness | +10% brightness (max 100%) |
 | **D-Pad Down** | Decrease Brightness | -10% brightness (min 10%) |
+| **D-Pad Left/Right** | Cycle Eye Style | Switch between Default, Heart, X, and O eyes |
 | **L Trigger** | Open Mouth | Manually open mouth (hold) |
 | **R Trigger** | Close Mouth | Manually close mouth (hold) |
 | **Start** | Reset to Defaults | Reset all settings |
@@ -336,6 +337,136 @@ sudo systemctl status protogen.service
 - Pi Zero 2W should handle this comfortably
 - Audio processing runs in separate thread
 - Status printed every ~3 seconds
+
+## Extending with Custom Face Elements
+
+The protogen mask uses a modular **Face Element Registry** system that makes it easy to add custom face components without modifying core code.
+
+### Available Eye Styles
+
+Cycle through these with **D-Pad Left/Right**:
+- **Default Eyes** - Original blinking protogen eyes
+- **Heart Eyes** - Cute heart-shaped eyes (no blinking)
+- **X Eyes** - Dizzy/knocked-out expression
+- **O Eyes** - Surprised/shocked wide-open eyes
+
+### Creating Your Own Elements
+
+Face elements are modular Rust structs that implement the `FaceElement` trait. Each element handles its own:
+- Update logic (animation state)
+- Rendering (drawing to canvas)
+- Input handling (gamepad buttons)
+
+#### Example: Creating Custom Eyes
+
+```rust
+struct StarEyes;
+
+impl FaceElement for StarEyes {
+    fn name(&self) -> &str { "Star Eyes" }
+    fn category(&self) -> ElementCategory { ElementCategory::Eyes }
+
+    fn update(&mut self, shared_state: &mut SharedFaceState, _dt: f64) {
+        // Don't blink
+        shared_state.eye_top = 9.0;
+        shared_state.eye_bottom = 1.45;
+    }
+
+    fn render(&self, canvas: &mut LedCanvas, context: &RenderContext,
+              _shared_state: &SharedFaceState, draw_pixel_fn: &dyn DrawPixelFn) {
+        // Draw star shapes at eye positions
+        // ... your rendering code here ...
+    }
+
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+}
+```
+
+#### Registering Your Element
+
+In `src/main.rs`, add your element to the registry in `ProtogenFace::new()`:
+
+```rust
+// Register alternative eye options
+registry.register(Box::new(DefaultEyes::new()));
+registry.register(Box::new(HeartEyes));
+registry.register(Box::new(XEyes));
+registry.register(Box::new(OEyes));
+registry.register(Box::new(StarEyes));  // <-- Add your custom element
+```
+
+### Element Categories
+
+Elements are organized by category:
+- **Eyes** - Eye styles (only one active at a time, cycle with D-Pad)
+- **Mouth** - Mouth animation (handles microphone input)
+- **Nose** - Nose rendering
+- **Accessory** - Additional effects (blush, tears, runny nose, etc.)
+
+Multiple accessories can be active simultaneously!
+
+### Advanced: Accessory Elements
+
+Create accessories that layer on top of the base face:
+
+```rust
+struct Blush {
+    intensity: f64,
+}
+
+impl FaceElement for Blush {
+    fn name(&self) -> &str { "Blush" }
+    fn category(&self) -> ElementCategory { ElementCategory::Accessory }
+
+    fn update(&mut self, _shared_state: &mut SharedFaceState, _dt: f64) {
+        // Pulse blush intensity
+        self.intensity = (self.intensity + 0.05).sin().abs();
+    }
+
+    fn render(&self, canvas: &mut LedCanvas, context: &RenderContext,
+              _shared_state: &SharedFaceState, draw_pixel_fn: &dyn DrawPixelFn) {
+        // Draw pink circles on cheeks
+        // ...
+    }
+
+    // Handle input to toggle blush on/off
+    fn handle_button(&mut self, button: Button, _shared_state: &mut SharedFaceState) -> bool {
+        match button {
+            Button::Select => {
+                println!("💖 Blush toggled!");
+                true // Button handled
+            }
+            _ => false
+        }
+    }
+
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+}
+```
+
+### Shared State
+
+Elements can read and write to `SharedFaceState`:
+- `mouth_opening` - Current mouth open amount (0.0 to 6.0)
+- `eye_top` / `eye_bottom` - Eyelid positions
+- `blink_enabled` - Whether blinking is active
+
+### Render Context
+
+Each frame provides `RenderContext` with:
+- `offset_x` / `offset_y` - Head movement (can add MPU sensor here)
+- `time_counter` - Animation time
+- `brightness` - Current brightness setting
+- `palette` - Active color palette
+
+### Tips for Extension Developers
+
+1. **Keep it simple** - Start with static shapes before adding animation
+2. **Use the pixel drawer** - Call `draw_pixel_fn.draw()` for automatic mirroring
+3. **Test incrementally** - Register your element and test rendering before adding logic
+4. **Share your creations** - Custom elements are easy to share as separate files!
 
 ## Credits
 
