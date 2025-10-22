@@ -668,9 +668,9 @@ impl FaceElement for HeartEyes {
         let offset_y = context.offset_y;
 
         // Draw one heart positioned at the eye location (will be mirrored by draw_pixel_fn)
-        // Using cord_y_d position from DefaultEyes as approximate eye center
-        let cx = 18.0 + offset_x;
-        let cy = 24.0 + offset_y;
+        // Using cord_y_d position from DefaultEyes, adjusted down 2 rows and back 5 columns
+        let cx = 13.0 + offset_x;  // 18.0 - 5.0
+        let cy = 26.0 + offset_y;  // 24.0 + 2.0
 
         for x in 1..=PANEL_WIDTH {
             let mut color = context.time_counter + (x as f64) * 5.0;
@@ -716,9 +716,9 @@ impl FaceElement for XEyes {
         let offset_y = context.offset_y;
 
         // Draw one X positioned at the eye location (will be mirrored by draw_pixel_fn)
-        // Using cord_y_d position from DefaultEyes as approximate eye center
-        let cx = 18.0 + offset_x;
-        let cy = 24.0 + offset_y;
+        // Using cord_y_d position from DefaultEyes, adjusted down 2 rows and back 5 columns
+        let cx = 13.0 + offset_x;  // 18.0 - 5.0
+        let cy = 26.0 + offset_y;  // 24.0 + 2.0
 
         for x in 1..=PANEL_WIDTH {
             let mut color = context.time_counter + (x as f64) * 5.0;
@@ -765,9 +765,9 @@ impl FaceElement for OEyes {
         let offset_y = context.offset_y;
 
         // Draw one circle positioned at the eye location (will be mirrored by draw_pixel_fn)
-        // Using cord_y_d position from DefaultEyes as approximate eye center
-        let cx = 18.0 + offset_x;
-        let cy = 24.0 + offset_y;
+        // Using cord_y_d position from DefaultEyes, adjusted down 2 rows and back 5 columns
+        let cx = 13.0 + offset_x;  // 18.0 - 5.0
+        let cy = 26.0 + offset_y;  // 24.0 + 2.0
 
         for x in 1..=PANEL_WIDTH {
             let mut color = context.time_counter + (x as f64) * 5.0;
