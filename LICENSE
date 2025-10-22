@@ -1,0 +1,42 @@
+Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+Copyright (c) 2025 Shaun (Rust implementation)
+Based on original Arduino protogen mask code by m16ind (https://vk.com/m16ind)
+Original project: https://www.thingiverse.com/thing:5417129
+
+This work is licensed under the Creative Commons Attribution 4.0 International License.
+
+You are free to:
+- Share: copy and redistribute the material in any medium or format
+- Adapt: remix, transform, and build upon the material for any purpose, even commercially
+
+Under the following terms:
+- Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.
+
+No additional restrictions: You may not apply legal terms or technological measures that legally restrict others from doing anything the license permits.
+
+To view a copy of this license, visit:
+https://creativecommons.org/licenses/by/4.0/
+
+================================================================================
+
+ATTRIBUTION REQUIREMENTS:
+
+When using or distributing this work or derivatives, please include attribution to:
+
+1. Original Arduino protogen mask creator: m16ind
+   - VK Profile: https://vk.com/m16ind
+   - Thingiverse Project: https://www.thingiverse.com/thing:5417129
+
+2. Rust implementation by Shaun
+   - GitHub: https://github.com/shaun/pi_mask_test (or your actual repo)
+
+================================================================================
+
+This project also uses the following third-party libraries, each with their own licenses:
+
+- rpi-led-matrix: Rust bindings for hzeller's rpi-rgb-led-matrix library
+- cpal: Cross-platform audio library (Apache-2.0)
+- gilrs: Game input library (Apache-2.0)
+
+See Cargo.toml for complete dependency information.

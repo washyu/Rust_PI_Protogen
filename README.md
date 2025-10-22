@@ -472,17 +472,36 @@ Each frame provides `RenderContext` with:
 
 ## Credits
 
-Based on the Arduino ESP32 protogen code by the original creator. Ported to Rust for Raspberry Pi with added features:
+This project is a Rust port based on the original Arduino ESP32 protogen mask code created by **m16ind**.
+
+**Original Project:**
+- Creator: m16ind (https://vk.com/m16ind)
+- Thingiverse: https://www.thingiverse.com/thing:5417129
+
+**Rust Implementation Enhancements:**
+- Ported to Rust for Raspberry Pi
 - USB microphone support via CPAL
-- Automatic idle detection
-- Improved threading for audio capture
-- Enhanced debugging output
+- Bluetooth gamepad control with gilrs
+- Automatic idle detection and breathing animation
+- Multi-threaded audio processing
+- Face element registry system for easy customization
+- Multiple eye styles and color palettes
+- Enhanced debugging and status output
 
 ## License
 
-This project uses:
+This project is licensed under **Creative Commons Attribution 4.0 International (CC BY 4.0)**.
+
+You are free to share and adapt this work, even commercially, as long as you provide appropriate attribution to:
+1. Original creator: m16ind (https://vk.com/m16ind)
+2. Rust implementation by Shaun
+
+See the [LICENSE](LICENSE) file for complete terms.
+
+**Third-Party Libraries:**
 - `rpi-led-matrix` - Rust bindings for hzeller's rpi-rgb-led-matrix library
-- `cpal` - Cross-platform audio library
+- `cpal` - Cross-platform audio library (Apache-2.0)
+- `gilrs` - Game input library (Apache-2.0)
 - `FastLED`-inspired color palette system
 
 ## Further Customization
