@@ -667,9 +667,10 @@ impl FaceElement for HeartEyes {
         let offset_x = context.offset_x;
         let offset_y = context.offset_y;
 
-        // Draw one heart (will be mirrored by draw_pixel_fn)
-        let cx = 32.0 + offset_x; // Center of left panel
-        let cy = 16.0 + offset_y; // Center vertically
+        // Draw one heart positioned at the eye location (will be mirrored by draw_pixel_fn)
+        // Using cord_y_d position from DefaultEyes as approximate eye center
+        let cx = 18.0 + offset_x;
+        let cy = 24.0 + offset_y;
 
         for x in 1..=PANEL_WIDTH {
             let mut color = context.time_counter + (x as f64) * 5.0;
@@ -683,7 +684,7 @@ impl FaceElement for HeartEyes {
                 let heart = (dx * dx + dy * dy - 25.0).powi(3) -
                             dx * dx * dy * dy * dy;
 
-                if heart < 100.0 && dy > cy - 5.0 {
+                if heart < 100.0 && dy > -5.0 {
                     draw_pixel_fn.draw(canvas, bright, color, x, y,
                                       context.brightness, context.palette);
                 }
@@ -714,9 +715,10 @@ impl FaceElement for XEyes {
         let offset_x = context.offset_x;
         let offset_y = context.offset_y;
 
-        // Draw one X (will be mirrored by draw_pixel_fn)
-        let cx = 32.0 + offset_x; // Center of left panel
-        let cy = 16.0 + offset_y; // Center vertically
+        // Draw one X positioned at the eye location (will be mirrored by draw_pixel_fn)
+        // Using cord_y_d position from DefaultEyes as approximate eye center
+        let cx = 18.0 + offset_x;
+        let cy = 24.0 + offset_y;
 
         for x in 1..=PANEL_WIDTH {
             let mut color = context.time_counter + (x as f64) * 5.0;
@@ -762,9 +764,10 @@ impl FaceElement for OEyes {
         let offset_x = context.offset_x;
         let offset_y = context.offset_y;
 
-        // Draw one circle (will be mirrored by draw_pixel_fn)
-        let cx = 32.0 + offset_x; // Center of left panel
-        let cy = 16.0 + offset_y; // Center vertically
+        // Draw one circle positioned at the eye location (will be mirrored by draw_pixel_fn)
+        // Using cord_y_d position from DefaultEyes as approximate eye center
+        let cx = 18.0 + offset_x;
+        let cy = 24.0 + offset_y;
 
         for x in 1..=PANEL_WIDTH {
             let mut color = context.time_counter + (x as f64) * 5.0;
