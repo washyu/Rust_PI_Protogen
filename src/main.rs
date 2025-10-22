@@ -419,9 +419,13 @@ impl ProtogenFace {
 
 // Gamepad input handler
 fn handle_gamepad_input(gilrs: &mut Gilrs, state: &Arc<Mutex<MaskState>>) {
-    while let Some(Event { id: _, event, time: _ }) = gilrs.next_event() {
+    while let Some(Event { id, event, time: _ }) = gilrs.next_event() {
+        // Debug: print all events
+        println!("🎮 Event from gamepad {}: {:?}", id, event);
+
         match event {
             EventType::ButtonPressed(button, _) => {
+                println!("🎮 Button pressed: {:?}", button);
                 let mut s = state.lock().unwrap();
                 match button {
                     // Face buttons
@@ -575,13 +579,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check for connected gamepads
     println!("\n🎮 Gamepad Status:");
     let mut gamepad_found = false;
-    for (_id, gamepad) in gilrs.gamepads() {
-        println!("  Connected: {} ({})", gamepad.name(), gamepad.power_info());
+    let mut gamepad_id = None;
+    for (id, gamepad) in gilrs.gamepads() {
+        println!("  Connected: {} (ID: {:?}, Power: {})", gamepad.name(), id, gamepad.power_info());
+        println!("  Mapping: {}", gamepad.mapping_source());
         gamepad_found = true;
+        gamepad_id = Some(id);
     }
     if !gamepad_found {
-        println!("  No gamepad detected. Controls disabled.");
+        println!("  ⚠️  No gamepad detected. Controls disabled.");
         println!("  Tip: Connect a Bluetooth gamepad and pair it before starting.");
+        println!("  Debug: Check 'ls /dev/input/' and permissions");
+    } else {
+        println!("  ✅ Gamepad ready! Press any button to test...");
     }
 
     // Initialize LED matrix
