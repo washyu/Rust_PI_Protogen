@@ -667,28 +667,25 @@ impl FaceElement for HeartEyes {
         let offset_x = context.offset_x;
         let offset_y = context.offset_y;
 
-        // Draw hearts using simple filled circles and triangles
-        let heart_centers = [(15.0, 26.0), (45.0, 26.0)]; // Left and right eyes
+        // Draw one heart (will be mirrored by draw_pixel_fn)
+        let cx = 32.0 + offset_x; // Center of left panel
+        let cy = 16.0 + offset_y; // Center vertically
 
-        for (cx, cy) in &heart_centers {
-            let cx = *cx + offset_x;
-            let cy = *cy + offset_y;
+        for x in 1..=PANEL_WIDTH {
+            let mut color = context.time_counter + (x as f64) * 5.0;
 
-            for x in 1..=PANEL_WIDTH {
-                let color = context.time_counter + (x as f64) * 5.0;
+            for y in 0..=PANEL_HEIGHT {
+                color += 5.0;
+                let dx = x as f64 - cx;
+                let dy = y as f64 - cy;
 
-                for y in 0..=PANEL_HEIGHT {
-                    let dx = x as f64 - cx;
-                    let dy = y as f64 - cy;
+                // Heart shape using implicit function
+                let heart = (dx * dx + dy * dy - 25.0).powi(3) -
+                            dx * dx * dy * dy * dy;
 
-                    // Heart shape using implicit function
-                    let heart = (dx * dx + dy * dy - 25.0).powi(3) -
-                                dx * dx * dy * dy * dy;
-
-                    if heart < 100.0 && dy > cy - 5.0 {
-                        draw_pixel_fn.draw(canvas, bright, color, x, y,
-                                          context.brightness, context.palette);
-                    }
+                if heart < 100.0 && dy > cy - 5.0 {
+                    draw_pixel_fn.draw(canvas, bright, color, x, y,
+                                      context.brightness, context.palette);
                 }
             }
         }
@@ -717,29 +714,26 @@ impl FaceElement for XEyes {
         let offset_x = context.offset_x;
         let offset_y = context.offset_y;
 
-        // Draw X shapes for eyes
-        let x_centers = [(15.0, 26.0), (45.0, 26.0)]; // Left and right
+        // Draw one X (will be mirrored by draw_pixel_fn)
+        let cx = 32.0 + offset_x; // Center of left panel
+        let cy = 16.0 + offset_y; // Center vertically
 
-        for (cx, cy) in &x_centers {
-            let cx = *cx + offset_x;
-            let cy = *cy + offset_y;
+        for x in 1..=PANEL_WIDTH {
+            let mut color = context.time_counter + (x as f64) * 5.0;
 
-            for x in 1..=PANEL_WIDTH {
-                let color = context.time_counter + (x as f64) * 5.0;
+            for y in 0..=PANEL_HEIGHT {
+                color += 5.0;
+                let dx = (x as f64 - cx).abs();
+                let dy = (y as f64 - cy).abs();
 
-                for y in 0..=PANEL_HEIGHT {
-                    let dx = (x as f64 - cx).abs();
-                    let dy = (y as f64 - cy).abs();
-
-                    // Draw diagonal lines forming an X
-                    if (dx - dy).abs() < 1.5 && dx < 6.0 && dy < 6.0 {
-                        draw_pixel_fn.draw(canvas, bright, color, x, y,
-                                          context.brightness, context.palette);
-                    }
-                    if (dx + dy - 12.0).abs() < 1.5 && dx < 6.0 && dy < 6.0 {
-                        draw_pixel_fn.draw(canvas, bright, color, x, y,
-                                          context.brightness, context.palette);
-                    }
+                // Draw diagonal lines forming an X
+                if (dx - dy).abs() < 1.5 && dx < 6.0 && dy < 6.0 {
+                    draw_pixel_fn.draw(canvas, bright, color, x, y,
+                                      context.brightness, context.palette);
+                }
+                if (dx + dy - 12.0).abs() < 1.5 && dx < 6.0 && dy < 6.0 {
+                    draw_pixel_fn.draw(canvas, bright, color, x, y,
+                                      context.brightness, context.palette);
                 }
             }
         }
@@ -768,26 +762,23 @@ impl FaceElement for OEyes {
         let offset_x = context.offset_x;
         let offset_y = context.offset_y;
 
-        // Draw circles for wide-open eyes
-        let o_centers = [(15.0, 26.0), (45.0, 26.0)];
+        // Draw one circle (will be mirrored by draw_pixel_fn)
+        let cx = 32.0 + offset_x; // Center of left panel
+        let cy = 16.0 + offset_y; // Center vertically
 
-        for (cx, cy) in &o_centers {
-            let cx = *cx + offset_x;
-            let cy = *cy + offset_y;
+        for x in 1..=PANEL_WIDTH {
+            let mut color = context.time_counter + (x as f64) * 5.0;
 
-            for x in 1..=PANEL_WIDTH {
-                let color = context.time_counter + (x as f64) * 5.0;
+            for y in 0..=PANEL_HEIGHT {
+                color += 5.0;
+                let dx = x as f64 - cx;
+                let dy = y as f64 - cy;
+                let dist_sq = dx * dx + dy * dy;
 
-                for y in 0..=PANEL_HEIGHT {
-                    let dx = x as f64 - cx;
-                    let dy = y as f64 - cy;
-                    let dist_sq = dx * dx + dy * dy;
-
-                    // Hollow circle (ring)
-                    if dist_sq > 16.0 && dist_sq < 36.0 {
-                        draw_pixel_fn.draw(canvas, bright, color, x, y,
-                                          context.brightness, context.palette);
-                    }
+                // Hollow circle (ring)
+                if dist_sq > 16.0 && dist_sq < 36.0 {
+                    draw_pixel_fn.draw(canvas, bright, color, x, y,
+                                      context.brightness, context.palette);
                 }
             }
         }
