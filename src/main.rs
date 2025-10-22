@@ -631,30 +631,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Start     - Reset to defaults\n");
 
     // Animation loop (run indefinitely)
-    loop {
-        // Handle gamepad input (non-blocking)
-        handle_gamepad_input(&mut gilrs, &mask_state);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        loop {
+            // Handle gamepad input (non-blocking)
+            handle_gamepad_input(&mut gilrs, &mask_state);
 
-        let mut canvas = matrix.offscreen_canvas();
-        protogen.render(&mut canvas);
-        let _ = matrix.swap(canvas);
+            let mut canvas = matrix.offscreen_canvas();
+            protogen.render(&mut canvas);
+            let _ = matrix.swap(canvas);
 
-        thread::sleep(Duration::from_millis(33)); // ~30 FPS
+            thread::sleep(Duration::from_millis(33)); // ~30 FPS
 
-        // Print status every few seconds
-        if protogen.time_counter as u64 % 90 == 0 {
-            let state = mask_state.lock().unwrap();
-            let idle_secs = audio_level.seconds_since_audio();
-            let current_level = audio_level.get_level();
-            let mode = if state.mic_muted || state.manual_breathing {
-                "MANUAL"
-            } else if idle_secs < IDLE_TIMEOUT_SECS {
-                "MIC"
-            } else {
-                "BREATHING"
-            };
-            println!("Mode: {} | Audio: {:.4} | Brightness: {:.0}% | Palette: {} | Mouth: {:.2}",
-                     mode, current_level, state.brightness * 100.0, state.color_palette.name(), protogen.mouth);
+            // Print status every few seconds
+            if protogen.time_counter as u64 % 90 == 0 {
+                let state = mask_state.lock().unwrap();
+                let idle_secs = audio_level.seconds_since_audio();
+                let current_level = audio_level.get_level();
+                let mode = if state.mic_muted || state.manual_breathing {
+                    "MANUAL"
+                } else if idle_secs < IDLE_TIMEOUT_SECS {
+                    "MIC"
+                } else {
+                    "BREATHING"
+                };
+                println!("Mode: {} | Audio: {:.4} | Brightness: {:.0}% | Palette: {} | Mouth: {:.2}",
+                         mode, current_level, state.brightness * 100.0, state.color_palette.name(), protogen.mouth);
+            }
         }
+    }));
+
+    // Clear the display on exit (whether normal or panic)
+    println!("\n🧹 Clearing display...");
+    let mut canvas = matrix.offscreen_canvas();
+    canvas.clear();
+    let _ = matrix.swap(canvas);
+    println!("✅ Display cleared. Goodbye!\n");
+
+    // Propagate panic if one occurred
+    if let Err(e) = result {
+        std::panic::resume_unwind(e);
     }
+
+    Ok(())
 }
