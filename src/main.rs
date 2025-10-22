@@ -1,19 +1,25 @@
+// Module declarations
+mod audio;
+mod color;
+mod gamepad;
+
 use rpi_led_matrix::{LedMatrix, LedMatrixOptions, LedColor, LedCanvas};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use std::any::Any;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::{HeapRb, traits::{Consumer, Observer, Producer, Split}};
-use gilrs::{Gilrs, Event, Button, EventType};
+use gilrs::Gilrs;
+
+// Re-export from modules
+use audio::{AudioLevel, start_audio_capture, SILENT_LIMIT};
+use color::{ColorPalette, get_shimmer_color};
+use gamepad::{MaskState, handle_gamepad_input, CycleEyes};
 
 const PANEL_WIDTH: i32 = 64;
 const PANEL_HEIGHT: i32 = 32;
 
 // Microphone constants (matching Arduino code)
 const MOUTH_MAX_OPENING: f64 = 6.0;
-const SILENT_LIMIT: f64 = 0.05; // Normalized audio threshold (0.0 to 1.0)
 const IDLE_TIMEOUT_SECS: u64 = 30; // Switch to breathing after 30 seconds of silence
 
 // ============================================================================
@@ -85,37 +91,6 @@ trait DrawPixelFn {
             x: i32, y: i32, brightness: f64, palette: ColorPalette);
 }
 
-// Color palettes
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum ColorPalette {
-    Forest,      // Green
-    Fire,        // Red/Orange
-    Ocean,       // Blue/Cyan
-    Purple,      // Purple/Pink
-    Rainbow,     // Multi-color
-}
-
-impl ColorPalette {
-    fn next(&self) -> Self {
-        match self {
-            ColorPalette::Forest => ColorPalette::Fire,
-            ColorPalette::Fire => ColorPalette::Ocean,
-            ColorPalette::Ocean => ColorPalette::Purple,
-            ColorPalette::Purple => ColorPalette::Rainbow,
-            ColorPalette::Rainbow => ColorPalette::Forest,
-        }
-    }
-
-    fn name(&self) -> &str {
-        match self {
-            ColorPalette::Forest => "Forest (Green)",
-            ColorPalette::Fire => "Fire (Red/Orange)",
-            ColorPalette::Ocean => "Ocean (Blue/Cyan)",
-            ColorPalette::Purple => "Purple/Pink",
-            ColorPalette::Rainbow => "Rainbow",
-        }
-    }
-}
 
 // Pixel drawer implementation
 struct PixelDrawer;
@@ -227,100 +202,11 @@ impl FaceElementRegistry {
 
 // Mask control state
 #[derive(Debug, Clone)]
-struct MaskState {
-    mic_muted: bool,           // Force breathing mode
-    manual_breathing: bool,     // Override auto-idle
-    brightness: f64,           // 0.0 to 1.0
-    color_palette: ColorPalette,
-    blink_enabled: bool,
-    manual_mouth_override: Option<f64>, // Manual mouth control
-}
 
 // Audio level tracker
-struct AudioLevel {
-    current_level: Arc<Mutex<f64>>,
-    last_audio_time: Arc<Mutex<Instant>>,
-}
 
-impl AudioLevel {
-    fn new() -> Self {
-        Self {
-            current_level: Arc::new(Mutex::new(0.0)),
-            last_audio_time: Arc::new(Mutex::new(Instant::now())),
-        }
-    }
-
-    fn update(&self, level: f64) {
-        if let Ok(mut current) = self.current_level.lock() {
-            *current = level;
-        }
-        // Update last_audio_time if we're above threshold
-        if level > SILENT_LIMIT {
-            if let Ok(mut last_time) = self.last_audio_time.lock() {
-                *last_time = Instant::now();
-            }
-        }
-    }
-
-    fn get_level(&self) -> f64 {
-        self.current_level.lock().map(|l| *l).unwrap_or(0.0)
-    }
-
-    fn seconds_since_audio(&self) -> u64 {
-        self.last_audio_time.lock()
-            .map(|t| t.elapsed().as_secs())
-            .unwrap_or(0)
-    }
-}
 
 // Color palette for shimmer effect with multiple color schemes
-fn get_shimmer_color(color_index: f64, brightness: f64, palette: ColorPalette) -> LedColor {
-    let colors = match palette {
-        ColorPalette::Forest => vec![
-            (0, 64, 0), (0, 128, 32), (32, 160, 64),
-            (64, 192, 96), (96, 224, 128), (128, 255, 160),
-        ],
-        ColorPalette::Fire => vec![
-            (64, 16, 0), (128, 32, 0), (192, 64, 0),
-            (255, 96, 0), (255, 128, 32), (255, 160, 64),
-        ],
-        ColorPalette::Ocean => vec![
-            (0, 32, 64), (0, 64, 128), (0, 96, 192),
-            (32, 128, 255), (64, 160, 255), (128, 192, 255),
-        ],
-        ColorPalette::Purple => vec![
-            (64, 0, 64), (128, 0, 128), (160, 32, 160),
-            (192, 64, 192), (224, 96, 224), (255, 128, 255),
-        ],
-        ColorPalette::Rainbow => vec![
-            (255, 0, 0), (255, 128, 0), (255, 255, 0),
-            (0, 255, 0), (0, 128, 255), (128, 0, 255),
-        ],
-    };
-
-    // Smooth interpolation between colors
-    let color_len = colors.len() as f64;
-    let normalized_index = color_index.abs() % (color_len * 10.0); // Scale for smoother transitions
-    let base_index = (normalized_index / 10.0) as usize % colors.len();
-    let next_index = (base_index + 1) % colors.len();
-    let blend = (normalized_index / 10.0) - (base_index as f64);
-
-    let (r1, g1, b1) = colors[base_index];
-    let (r2, g2, b2) = colors[next_index];
-
-    // Linear interpolation between adjacent colors
-    let r = r1 as f64 + (r2 as f64 - r1 as f64) * blend;
-    let g = g1 as f64 + (g2 as f64 - g1 as f64) * blend;
-    let b = b1 as f64 + (b2 as f64 - b1 as f64) * blend;
-
-    let bright_factor = (brightness / 255.0).clamp(0.0, 1.0);
-
-    LedColor {
-        red: (r * bright_factor) as u8,
-        green: (g * bright_factor) as u8,
-        blue: (b * bright_factor) as u8,
-    }
-}
 
 // ============================================================================
 // DEFAULT FACE ELEMENTS
@@ -936,139 +822,18 @@ impl ProtogenFace {
         }
 }
 
-// Gamepad input handler
-fn handle_gamepad_input(gilrs: &mut Gilrs, state: &Arc<Mutex<MaskState>>, protogen: &mut ProtogenFace) {
-    while let Some(Event { id, event, time: _ }) = gilrs.next_event() {
-        println!("🎮 Event from gamepad {}: {:?}", id, event);
-        match event {
-            EventType::ButtonPressed(button, _) => {
-                println!("🎮 Button pressed: {:?}", button);
-                let mut s = state.lock().unwrap();
-                match button {
-                    // Face buttons
-                    Button::South => {  // A/X button - Toggle mic mute
-                        s.mic_muted = !s.mic_muted;
-                        println!("🎤 Microphone {}", if s.mic_muted { "MUTED" } else { "ACTIVE" });
-                    }
-                    Button::East => {   // B/Circle button - Toggle manual breathing
-                        s.manual_breathing = !s.manual_breathing;
-                        println!("💨 Manual breathing {}", if s.manual_breathing { "ON" } else { "OFF" });
-                    }
-                    Button::North => {  // Y/Triangle button - Toggle blinking
-                        s.blink_enabled = !s.blink_enabled;
-                        println!("👁️  Blinking {}", if s.blink_enabled { "ON" } else { "OFF" });
-                    }
-                    Button::West => {   // X/Square button - Cycle color palette
-                        s.color_palette = s.color_palette.next();
-                        println!("🎨 Color: {}", s.color_palette.name());
-                    }
-
-                    // D-Pad for brightness and eye cycling
-                    Button::DPadUp => {
-                        s.brightness = (s.brightness + 0.1).min(1.0);
-                        println!("🔆 Brightness: {:.0}%", s.brightness * 100.0);
-                    }
-                    Button::DPadDown => {
-                        s.brightness = (s.brightness - 0.1).max(0.1);
-                        println!("🔅 Brightness: {:.0}%", s.brightness * 100.0);
-                    }
-                    Button::DPadLeft | Button::DPadRight => {
-                        drop(s); // Release lock before calling protogen
-                        protogen.cycle_eyes();
-                        return; // Exit early since lock is dropped
-                    }
-
-                    // Shoulder buttons for manual mouth control
-                    Button::LeftTrigger | Button::LeftTrigger2 => {
-                        s.manual_mouth_override = Some(MOUTH_MAX_OPENING); // Fully open
-                        println!("😮 Mouth: OPEN (manual)");
-                    }
-                    Button::RightTrigger | Button::RightTrigger2 => {
-                        s.manual_mouth_override = Some(0.0); // Fully closed
-                        println!("😐 Mouth: CLOSED (manual)");
-                    }
-
-                    // Start/Select for reset
-                    Button::Start => {
-                        // Reset to defaults
-                        s.mic_muted = false;
-                        s.manual_breathing = false;
-                        s.brightness = 1.0;
-                        s.blink_enabled = true;
-                        s.manual_mouth_override = None;
-                        println!("🔄 Reset to defaults");
-                    }
-
-                    _ => {}
-                }
-            }
-            EventType::ButtonReleased(button, _) => {
-                match button {
-                    Button::LeftTrigger | Button::LeftTrigger2 |
-                    Button::RightTrigger | Button::RightTrigger2 => {
-                        let mut s = state.lock().unwrap();
-                        s.manual_mouth_override = None;
-                        println!("🤖 Mouth: AUTO");
-                    }
-                    _ => {}
-                }
-            }
-            _ => {}
-        }
+// Implement CycleEyes trait for gamepad controls
+impl CycleEyes for ProtogenFace {
+    fn cycle_eyes(&mut self) {
+        self.registry.cycle_eyes();
+        let eyes_name = self.registry.get_active_eyes_name();
+        println!("👁️  Eyes: {}", eyes_name);
     }
 }
 
+// Gamepad input handler
+
 // Initialize microphone capture
-fn start_audio_capture(audio_level: Arc<AudioLevel>) -> Result<cpal::Stream, Box<dyn std::error::Error>> {
-    let host = cpal::default_host();
-    let device = host.default_input_device()
-        .ok_or("No input device available")?;
-
-    println!("Using audio input device: {}", device.name()?);
-
-    let config = device.default_input_config()?;
-    println!("Audio config: {:?}", config);
-
-    let audio_level_clone = audio_level.clone();
-
-    let stream = match config.sample_format() {
-        cpal::SampleFormat::F32 => {
-            device.build_input_stream(
-                &config.into(),
-                move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    // Calculate RMS amplitude (similar to Arduino analogRead)
-                    let sum: f32 = data.iter().map(|&s| s * s).sum();
-                    let rms = (sum / data.len() as f32).sqrt();
-                    audio_level_clone.update(rms as f64);
-                },
-                |err| eprintln!("Audio stream error: {}", err),
-                None,
-            )?
-        }
-        cpal::SampleFormat::I16 => {
-            device.build_input_stream(
-                &config.into(),
-                move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    // Normalize i16 to 0.0-1.0 range and calculate RMS
-                    let sum: f32 = data.iter()
-                        .map(|&s| {
-                            let normalized = s as f32 / i16::MAX as f32;
-                            normalized * normalized
-                        })
-                        .sum();
-                    let rms = (sum / data.len() as f32).sqrt();
-                    audio_level_clone.update(rms as f64);
-                },
-                |err| eprintln!("Audio stream error: {}", err),
-                None,
-            )?
-        }
-        _ => return Err("Unsupported sample format".into()),
-    };
-
-    stream.play()?;
-    Ok(stream)
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize audio capture
@@ -1089,14 +854,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize gamepad
     let mut gilrs = Gilrs::new().unwrap();
-    let mask_state = Arc::new(Mutex::new(MaskState {
-        mic_muted: false,
-        manual_breathing: false,
-        brightness: 1.0,
-        color_palette: ColorPalette::Forest,
-        blink_enabled: true,
-        manual_mouth_override: None,
-    }));
+    let mask_state = Arc::new(Mutex::new(MaskState::new()));
 
     // Check for connected gamepads
     println!("\n🎮 Gamepad Status:");
