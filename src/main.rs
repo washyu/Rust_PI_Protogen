@@ -3,12 +3,12 @@ mod audio;
 mod color;
 mod gamepad;
 
-use rpi_led_matrix::{LedMatrix, LedMatrixOptions, LedColor, LedCanvas};
+use rpi_led_matrix::{LedMatrix, LedMatrixOptions, LedCanvas};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
 use std::any::Any;
-use gilrs::Gilrs;
+use gilrs::{Gilrs, Button};
 
 // Re-export from modules
 use audio::{AudioLevel, start_audio_capture, SILENT_LIMIT};
