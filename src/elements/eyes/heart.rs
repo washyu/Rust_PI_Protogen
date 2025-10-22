@@ -1,3 +1,4 @@
+use std::time::Instant;
 use rpi_led_matrix::LedCanvas;
 use super::base::{Eye, EyePosition};
 use crate::face::{RenderContext, DrawPixelFn, SharedFaceState};
@@ -7,17 +8,58 @@ use crate::{PANEL_WIDTH, PANEL_HEIGHT};
 #[derive(Clone)]
 pub struct HeartEyes {
     position: EyePosition,
+    blink_sec: i32,
+    blink_frame: i32,
+    blink_flag: bool,
+    last_second: u64,
+    start_time: Instant,
 }
+
+const HEART_WIDTH: i32 = 24;
+const HEART_HEIGHT: i32 = 16;
+
+// Heart bitmap pattern (24x16)
+const HEART_PATTERN: [[u8; 24]; 16] = [
+    [0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0],
+    [0,0,1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,0,0],
+    [0,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,0],
+    [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+    [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+    [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+    [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+    [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+    [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],
+    [0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],
+];
+
 
 impl HeartEyes {
     pub fn new() -> Self {
         Self {
             position: EyePosition::default(),
+            blink_sec: 0,
+            blink_frame: 0,
+            blink_flag: true,
+            last_second: 0,
+            start_time: Instant::now(),
         }
     }
 
     pub fn with_position(position: EyePosition) -> Self {
-        Self { position }
+        Self {
+            position,
+            blink_sec: 0,
+            blink_frame: 0,
+            blink_flag: true,
+            last_second: 0,
+            start_time: Instant::now(),
+        }
     }
 }
 
@@ -31,9 +73,39 @@ impl Eye for HeartEyes {
     }
 
     fn update(&mut self, shared_state: &mut SharedFaceState, _dt: f64) {
-        // Hearts don't blink
-        shared_state.eye_top = 9.0;
-        shared_state.eye_bottom = 1.45;
+        // Update second counter
+        let current_second = self.start_time.elapsed().as_secs();
+        if current_second != self.last_second {
+            self.blink_sec += 1;
+            self.last_second = current_second;
+        }
+
+        // Only blink if enabled
+        if !shared_state.blink_enabled {
+            self.blink_frame = 0;
+            self.blink_sec = 0;
+            return;
+        }
+
+        // Start blink after 10 seconds
+        if self.blink_sec < 10 {
+            return;
+        }
+
+        // Advance blink animation
+        if self.blink_flag {
+            self.blink_frame += 1;
+            if self.blink_frame > 7 {  // Close fully at frame 7 (8 rows from top/bottom)
+                self.blink_flag = false;
+            }
+        } else {
+            self.blink_frame -= 1;
+            if self.blink_frame < 0 {
+                self.blink_sec = 0;
+                self.blink_frame = 0;
+                self.blink_flag = true;
+            }
+        }
     }
 
     fn draw(&self, canvas: &mut LedCanvas, context: &RenderContext,
@@ -42,25 +114,37 @@ impl Eye for HeartEyes {
         let offset_x = context.offset_x;
         let offset_y = context.offset_y;
 
-        // Draw one heart positioned at the eye location (will be mirrored by draw_pixel_fn)
-        let cx = self.position.center_x + offset_x;
-        let cy = self.position.center_y + offset_y;
+        // Calculate top-left corner to center the heart at the eye position
+        let start_x = (self.position.center_x + offset_x - (HEART_WIDTH as f64 / 2.0)) as i32;
+        let start_y = (self.position.center_y + offset_y - (HEART_HEIGHT as f64 / 2.0)) as i32;
 
-        for x in 1..=PANEL_WIDTH {
-            let mut color = context.time_counter + (x as f64) * 5.0;
+        // Draw heart using bitmap pattern (flip vertically for correct orientation)
+        // Apply blink effect by masking rows from top and bottom towards middle
+        for row in 0..HEART_HEIGHT {
+            for col in 0..HEART_WIDTH {
+                let flipped_row = (HEART_HEIGHT - 1 - row) as usize;
 
-            for y in 0..=PANEL_HEIGHT {
-                color += 5.0;
-                let dx = x as f64 - cx;
-                let dy = y as f64 - cy;
+                // Check if this row should be masked during blink
+                let should_draw = if self.blink_frame > 0 {
+                    // Mask from top and bottom towards middle
+                    let rows_from_top = self.blink_frame;
+                    let rows_from_bottom = self.blink_frame;
+                    row >= rows_from_top && row < (HEART_HEIGHT - rows_from_bottom)
+                } else {
+                    true
+                };
 
-                // Heart shape using implicit function
-                let heart = (dx * dx + dy * dy - 25.0).powi(3) -
-                            dx * dx * dy * dy * dy;
+                if should_draw && HEART_PATTERN[flipped_row][col as usize] == 1 {
+                    let x = start_x + col;
+                    let y = start_y + row;
 
-                if heart < 100.0 && dy > -5.0 {
-                    draw_pixel_fn.draw(canvas, bright, color, x, y,
-                                      context.brightness, context.palette);
+                    // Check bounds
+                    if x >= 1 && x <= PANEL_WIDTH && y >= 0 && y <= PANEL_HEIGHT {
+                        // Calculate color with shimmer effect
+                        let color = context.time_counter + (x as f64) * 5.0 + (y as f64) * 5.0;
+                        draw_pixel_fn.draw(canvas, bright, color, x, y,
+                                          context.brightness, context.palette);
+                    }
                 }
             }
         }
