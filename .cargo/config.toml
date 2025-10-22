@@ -1,0 +1,5 @@
+[build]
+rustflags = ["-Aunused", "-Awarnings"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-Aunused", "-Awarnings"]

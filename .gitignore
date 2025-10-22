@@ -17,3 +17,15 @@ Thumbs.db
 # Testing
 *.wav
 test_output/
+
+# Video files (keep videos directory but ignore video content)
+videos/*.mp4
+videos/*.avi
+videos/*.mov
+videos/*.mkv
+videos/*.webm
+videos/*.MP4
+videos/*.AVI
+videos/*.MOV
+videos/*.MKV
+videos/*.WEBM

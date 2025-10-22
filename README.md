@@ -27,17 +27,30 @@ source $HOME/.cargo/env
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
-    libasound2-dev \
-    pkg-config \
     build-essential \
-    git
+    g++ \
+    cmake \
+    git \
+    pkg-config \
+    libasound2-dev \
+    libudev-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libavfilter-dev \
+    libavdevice-dev \
+    libclang-dev \
+    clang
 ```
 
 **Required libraries:**
-- `libasound2-dev` - ALSA audio library (for USB microphone support)
-- `pkg-config` - Helps find installed libraries during compilation
-- `build-essential` - C/C++ compiler and tools (needed for rpi-led-matrix)
+- `build-essential`, `g++`, `cmake` - Build tools (needed for rpi-led-matrix compilation)
 - `git` - Version control (for cloning rpi-rgb-led-matrix if needed)
+- `pkg-config` - Helps find installed libraries during compilation
+- `libasound2-dev` - ALSA audio library (for USB microphone support via cpal)
+- `libudev-dev` - udev library (needed for gamepad support via gilrs)
+- `libavcodec-dev`, `libavformat-dev`, `libavutil-dev`, `libavfilter-dev`, `libavdevice-dev` - FFmpeg libraries (for video playback via video-rs)
+- `libclang-dev`, `clang` - Clang compiler (needed by video-rs FFmpeg bindings)
 
 ### 3. Enable LED Matrix (Disable Audio PWM)
 
@@ -135,7 +148,8 @@ Control your protogen mask in real-time with a Bluetooth gamepad:
 | **D-Pad Left/Right** | Cycle Eye Style | Switch between Default, Heart, X, and O eyes |
 | **L Trigger** | Open Mouth | Manually open mouth (hold) |
 | **R Trigger** | Close Mouth | Manually close mouth (hold) |
-| **Start** | Reset to Defaults | Reset all settings |
+| **Start (short)** | Play Video / Next | Start video playback or skip to next video |
+| **Start (long)** | Exit Video Mode | Return to protogen face from video playback |
 
 ### Color Palettes
 
@@ -153,8 +167,63 @@ Button presses provide console feedback:
 🎨 Color: Fire (Red/Orange)
 🔆 Brightness: 80%
 😮 Mouth: OPEN (manual)
-🔄 Reset to defaults
+📺 ▶️  Short press: Start video playback
+📺 ⏭️  Short press: Next video
+📺 ⏹️  Long press: Exiting video mode
 ```
+
+## Video Playback
+
+Play custom videos on your LED matrix! The mask can switch between protogen face animation and video playback mode.
+
+### Setup
+
+1. **Place videos in the `videos/` directory:**
+   ```bash
+   cd ~/workspace/pi_mask_test
+   cp myvideo.mp4 ./videos/
+   ```
+
+2. **Supported formats:** MP4, AVI, MOV, MKV, WEBM
+
+3. **Recommended specs for best performance:**
+   - Resolution: 128x32 or lower (will auto-scale)
+   - Frame rate: 30 FPS or lower
+   - Content: High contrast, bright colors work best on LEDs
+
+### Controls
+
+- **Start (short press)** when on protogen face → Play first video
+- **Start (short press)** during video → Skip to next video
+- **Start (long press, 800ms+)** during video → Exit back to protogen face
+- **D-Pad Up/Down** → Adjust brightness during playback
+
+### Video Behavior
+
+- Videos play in alphabetical order
+- Automatically returns to protogen face when video finishes
+- Brightness control works in both modes
+- All other gamepad buttons disabled during video playback
+
+### Optimizing Videos
+
+Use ffmpeg to prepare videos for the LED matrix:
+
+```bash
+# Resize to matrix dimensions and optimize
+ffmpeg -i input.mp4 -vf scale=128:32 -r 30 -b:v 500k output.mp4
+
+# Convert animated GIF to video
+ffmpeg -i animation.gif -vf scale=128:32 -r 30 -pix_fmt yuv420p output.mp4
+
+# Extract 10-second clip
+ffmpeg -i long_video.mp4 -t 10 -vf scale=128:32 -r 30 clip.mp4
+
+# Adjust brightness
+ffmpeg -i dark_video.mp4 -vf eq=brightness=0.1,scale=128:32 -r 30 output.mp4
+```
+
+See `videos/README.md` for detailed tips and troubleshooting.
 
 ## Configuration
 
@@ -214,6 +283,15 @@ let colors = [
 - Smooth sine wave breathing effect
 - Seamless transition between modes
 
+### Video Playback
+- Play MP4, AVI, MOV, MKV, or WEBM files on LED matrix
+- Automatic frame scaling to 128x32 resolution
+- Simple gamepad controls (Start button short/long press)
+- Seamless switching between protogen face and video modes
+- Auto-return to face when video ends
+- Alphabetical playlist from `videos/` directory
+- Brightness adjustment during playback
+
 ### Bluetooth Gamepad Control
 - Real-time control without SSH/terminal access
 - Tactile button control - no need to look at controls
@@ -221,6 +299,7 @@ let colors = [
 - Adjust brightness on the fly
 - Cycle through 5 color palettes
 - Manual mouth control
+- Video playback controls
 - Perfect for controlling while wearing the mask
 
 ### Eye Blinking
@@ -482,6 +561,7 @@ This project is a Rust port based on the original Arduino ESP32 protogen mask co
 - Ported to Rust for Raspberry Pi
 - USB microphone support via CPAL
 - Bluetooth gamepad control with gilrs
+- Video playback with video-rs (MP4, AVI, MOV, MKV, WEBM)
 - Automatic idle detection and breathing animation
 - Multi-threaded audio processing
 - Face element registry system for easy customization
@@ -502,6 +582,7 @@ See the [LICENSE](LICENSE) file for complete terms.
 - `rpi-led-matrix` - Rust bindings for hzeller's rpi-rgb-led-matrix library
 - `cpal` - Cross-platform audio library (Apache-2.0)
 - `gilrs` - Game input library (Apache-2.0)
+- `video-rs` - Video decoding library with ffmpeg backend (MIT/Apache-2.0)
 - `FastLED`-inspired color palette system
 
 ## Further Customization

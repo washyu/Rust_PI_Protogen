@@ -2,8 +2,9 @@
 mod audio;
 mod color;
 mod gamepad;
+mod video;
 
-use rpi_led_matrix::{LedMatrix, LedMatrixOptions, LedCanvas};
+use rpi_led_matrix::{LedMatrix, LedMatrixOptions, LedCanvas, LedColor};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
@@ -13,7 +14,8 @@ use gilrs::{Gilrs, Button};
 // Re-export from modules
 use audio::{AudioLevel, start_audio_capture, SILENT_LIMIT};
 use color::{ColorPalette, get_shimmer_color};
-use gamepad::{MaskState, handle_gamepad_input, CycleEyes};
+use gamepad::{MaskState, handle_gamepad_input, CycleEyes, ButtonTracker, VideoAction};
+use video::VideoPlayer;
 
 const PANEL_WIDTH: i32 = 64;
 const PANEL_HEIGHT: i32 = 32;
@@ -855,6 +857,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize gamepad
     let mut gilrs = Gilrs::new().unwrap();
     let mask_state = Arc::new(Mutex::new(MaskState::new()));
+    let mut button_tracker = ButtonTracker::new();
 
     // Check for connected gamepads
     println!("\n🎮 Gamepad Status:");
@@ -873,6 +876,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("  ✅ Gamepad ready! Press any button to test...");
     }
+
+    // Initialize video player
+    let mut video_player = VideoPlayer::new("./videos");
 
     // Initialize LED matrix
     let mut options = LedMatrixOptions::new();
@@ -896,15 +902,76 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  D-Pad ←→  - Cycle eye styles");
     println!("  L Trigger - Open mouth (hold)");
     println!("  R Trigger - Close mouth (hold)");
-    println!("  Start     - Reset to defaults\n");
+    println!("  Start (short) - Play video / Next video");
+    println!("  Start (long)  - Exit video mode\n");
 
     // Animation loop (run indefinitely - press Ctrl+C to stop)
     loop {
         // Handle gamepad input (non-blocking)
-        handle_gamepad_input(&mut gilrs, &mask_state, &mut protogen);
+        handle_gamepad_input(&mut gilrs, &mask_state, &mut protogen, &mut button_tracker);
+
+        // Handle video actions from gamepad
+        {
+            let mut state = mask_state.lock().unwrap();
+            match state.video_action {
+                VideoAction::PlayFirst => {
+                    if video_player.play_first() {
+                        state.video_mode = true;
+                    }
+                    state.video_action = VideoAction::None;
+                }
+                VideoAction::NextVideo => {
+                    video_player.next_video();
+                    state.video_action = VideoAction::None;
+                }
+                VideoAction::ExitVideo => {
+                    video_player.stop();
+                    state.video_mode = false;
+                    state.video_action = VideoAction::None;
+                }
+                VideoAction::None => {}
+            }
+        }
 
         let mut canvas = matrix.offscreen_canvas();
-        protogen.render(&mut canvas);
+
+        // Render based on mode
+        let state = mask_state.lock().unwrap();
+        if state.video_mode && video_player.is_playing() {
+            // Video mode - render video frame (mirrored on both 64x32 panels)
+            if let Some(frame) = video_player.next_frame(64, 32) {
+                // Apply brightness
+                let brightness = (state.brightness * 255.0) as u8;
+
+                // Draw video frame mirrored on both panels
+                for y in 0..32 {
+                    for x in 0..64 {
+                        let (r, g, b) = frame.get_pixel(x, y);
+                        let r = ((r as u16 * brightness as u16) / 255) as u8;
+                        let g = ((g as u16 * brightness as u16) / 255) as u8;
+                        let b = ((b as u16 * brightness as u16) / 255) as u8;
+                        let color = LedColor { red: r, green: g, blue: b };
+
+                        // Draw on left panel
+                        canvas.set(x as i32, y as i32, &color);
+                        // Mirror on right panel
+                        canvas.set((x + 64) as i32, y as i32, &color);
+                    }
+                }
+            } else if video_player.has_ended() {
+                // Video ended, return to face
+                drop(state);
+                let mut state = mask_state.lock().unwrap();
+                state.video_mode = false;
+                video_player.stop();
+                println!("📺 Video ended, returning to protogen face");
+            }
+        } else {
+            // Protogen face mode
+            drop(state);
+            protogen.render(&mut canvas);
+        }
+
         let _ = matrix.swap(canvas);
 
         thread::sleep(Duration::from_millis(33)); // ~30 FPS
@@ -912,19 +979,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Print status every few seconds
         if protogen.time_counter as u64 % 90 == 0 {
             let state = mask_state.lock().unwrap();
-            let idle_secs = audio_level.seconds_since_audio();
-            let current_level = audio_level.get_level();
-            let mode = if state.mic_muted || state.manual_breathing {
-                "MANUAL"
-            } else if idle_secs < IDLE_TIMEOUT_SECS {
-                "MIC"
+            if state.video_mode {
+                // Video mode status
+                if let Some(video_name) = video_player.current_video_name() {
+                    println!("Mode: VIDEO | Playing: {} | Brightness: {:.0}%",
+                             video_name, state.brightness * 100.0);
+                }
             } else {
-                "BREATHING"
-            };
-            let eyes = protogen.registry.get_active_eyes_name();
-            let mouth = protogen.shared_state.mouth_opening;
-            println!("Mode: {} | Eyes: {} | Audio: {:.4} | Brightness: {:.0}% | Palette: {} | Mouth: {:.2}",
-                     mode, eyes, current_level, state.brightness * 100.0, state.color_palette.name(), mouth);
+                // Protogen face status
+                let idle_secs = audio_level.seconds_since_audio();
+                let current_level = audio_level.get_level();
+                let mode = if state.mic_muted || state.manual_breathing {
+                    "MANUAL"
+                } else if idle_secs < IDLE_TIMEOUT_SECS {
+                    "MIC"
+                } else {
+                    "BREATHING"
+                };
+                let eyes = protogen.registry.get_active_eyes_name();
+                let mouth = protogen.shared_state.mouth_opening;
+                println!("Mode: {} | Eyes: {} | Audio: {:.4} | Brightness: {:.0}% | Palette: {} | Mouth: {:.2}",
+                         mode, eyes, current_level, state.brightness * 100.0, state.color_palette.name(), mouth);
+            }
         }
     }
 }

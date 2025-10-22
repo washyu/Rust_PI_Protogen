@@ -3,9 +3,21 @@ name = "pi_mask_test"
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+overflow-checks = false
+
+[profile.dev]
+overflow-checks = false
+
 [dependencies]
 libc = "0.2.177"
 rpi-led-matrix = "0.4.0"
 cpal = "0.15"
 ringbuf = "0.4"
 gilrs = "0.10"
+
+[dependencies.ffmpeg-next]
+git = "https://github.com/zmwangx/rust-ffmpeg.git"
+branch = "master"
+default-features = false
+features = ["codec", "format", "rpi", "software-scaling"]
