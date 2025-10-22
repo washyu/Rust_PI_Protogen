@@ -393,7 +393,7 @@ impl ProtogenFace {
                             bright
                         }
                     };
-                    self.draw_pixel_mirrored(canvas, brightness, color2, x, y);
+                    self.draw_pixel_mirrored(canvas, brightness, color, x, y);
                     continue;
                 }
 
