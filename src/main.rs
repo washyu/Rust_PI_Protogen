@@ -480,11 +480,6 @@ impl FaceElement for DefaultMouth {
     fn description(&self) -> &str { "Audio-reactive mouth with microphone input" }
 
     fn update(&mut self, shared_state: &mut SharedFaceState, dt: f64) {
-        // Use manual override if set
-        if let Some(manual) = shared_state.blink_enabled.then_some(()).and(None) {
-            // This path isn't used for manual mouth - handled in MaskState
-        }
-
         // Determine if using mic or breathing
         let seconds_idle = self.audio_level.seconds_since_audio();
         let use_breathing = seconds_idle >= IDLE_TIMEOUT_SECS;
