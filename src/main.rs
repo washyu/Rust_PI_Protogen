@@ -120,14 +120,27 @@ fn get_shimmer_color(color_index: f64, brightness: f64, palette: ColorPalette) -
         ],
     };
 
-    let palette_index = (color_index.abs() as usize) % colors.len();
-    let (r, g, b) = colors[palette_index];
+    // Smooth interpolation between colors
+    let color_len = colors.len() as f64;
+    let normalized_index = color_index.abs() % (color_len * 10.0); // Scale for smoother transitions
+    let base_index = (normalized_index / 10.0) as usize % colors.len();
+    let next_index = (base_index + 1) % colors.len();
+    let blend = (normalized_index / 10.0) - (base_index as f64);
+
+    let (r1, g1, b1) = colors[base_index];
+    let (r2, g2, b2) = colors[next_index];
+
+    // Linear interpolation between adjacent colors
+    let r = r1 as f64 + (r2 as f64 - r1 as f64) * blend;
+    let g = g1 as f64 + (g2 as f64 - g1 as f64) * blend;
+    let b = b1 as f64 + (b2 as f64 - b1 as f64) * blend;
+
     let bright_factor = (brightness / 255.0).clamp(0.0, 1.0);
 
     LedColor {
-        red: (r as f64 * bright_factor) as u8,
-        green: (g as f64 * bright_factor) as u8,
-        blue: (b as f64 * bright_factor) as u8,
+        red: (r * bright_factor) as u8,
+        green: (g * bright_factor) as u8,
+        blue: (b * bright_factor) as u8,
     }
 }
 
