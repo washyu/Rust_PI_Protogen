@@ -96,9 +96,14 @@ pub fn handle_gamepad_input<T: CycleEyes>(gilrs: &mut Gilrs, state: &Arc<Mutex<M
                         s.brightness = (s.brightness - 0.1).max(0.1);
                         println!("🔅 Brightness: {:.0}%", s.brightness * 100.0);
                     }
-                    Button::DPadLeft | Button::DPadRight => {
+                    Button::DPadRight => {
                         drop(s); // Release lock before calling protogen
-                        protogen.cycle_eyes();
+                        protogen.cycle_eyes_forward();
+                        return; // Exit early since lock is dropped
+                    }
+                    Button::DPadLeft => {
+                        drop(s); // Release lock before calling protogen
+                        protogen.cycle_eyes_backward();
                         return; // Exit early since lock is dropped
                     }
 
@@ -163,5 +168,6 @@ pub fn handle_gamepad_input<T: CycleEyes>(gilrs: &mut Gilrs, state: &Arc<Mutex<M
 
 // Trait for objects that can cycle eyes
 pub trait CycleEyes {
-    fn cycle_eyes(&mut self);
+    fn cycle_eyes_forward(&mut self);
+    fn cycle_eyes_backward(&mut self);
 }

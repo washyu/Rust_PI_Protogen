@@ -188,10 +188,19 @@ impl FaceElementRegistry {
         false
     }
 
-    fn cycle_eyes(&mut self) {
+    fn cycle_eyes_forward(&mut self) {
         if !self.eyes_variants.is_empty() {
             self.active_eyes_index = (self.active_eyes_index + 1) % self.eyes_variants.len();
-            println!("👁️  Eyes: {}", self.eyes_variants[self.active_eyes_index]);
+        }
+    }
+
+    fn cycle_eyes_backward(&mut self) {
+        if !self.eyes_variants.is_empty() {
+            if self.active_eyes_index == 0 {
+                self.active_eyes_index = self.eyes_variants.len() - 1;
+            } else {
+                self.active_eyes_index -= 1;
+            }
         }
     }
 
@@ -779,9 +788,13 @@ impl ProtogenFace {
         }
     }
 
-    // Cycle to the next eye variant
-    fn cycle_eyes(&mut self) {
-        self.registry.cycle_eyes();
+    // Cycle to the next/previous eye variant
+    fn cycle_eyes_forward(&mut self) {
+        self.registry.cycle_eyes_forward();
+    }
+
+    fn cycle_eyes_backward(&mut self) {
+        self.registry.cycle_eyes_backward();
     }
 
     // Handle button input for elements
@@ -826,10 +839,16 @@ impl ProtogenFace {
 
 // Implement CycleEyes trait for gamepad controls
 impl CycleEyes for ProtogenFace {
-    fn cycle_eyes(&mut self) {
-        self.registry.cycle_eyes();
+    fn cycle_eyes_forward(&mut self) {
+        self.registry.cycle_eyes_forward();
         let eyes_name = self.registry.get_active_eyes_name();
-        println!("👁️  Eyes: {}", eyes_name);
+        println!("👁️  Eyes: {} (→)", eyes_name);
+    }
+
+    fn cycle_eyes_backward(&mut self) {
+        self.registry.cycle_eyes_backward();
+        let eyes_name = self.registry.get_active_eyes_name();
+        println!("👁️  Eyes: {} (←)", eyes_name);
     }
 }
 

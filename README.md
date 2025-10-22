@@ -145,7 +145,8 @@ Control your protogen mask in real-time with a Bluetooth gamepad:
 | **X / Square** | Cycle Color Palette | Switch between Forest, Fire, Ocean, Purple, Rainbow |
 | **D-Pad Up** | Increase Brightness | +10% brightness (max 100%) |
 | **D-Pad Down** | Decrease Brightness | -10% brightness (min 10%) |
-| **D-Pad Left/Right** | Cycle Eye Style | Switch between Default, Heart, X, and O eyes |
+| **D-Pad Right** | Next Eye Style | Cycle forward through eye styles (Default → Heart → X → O) |
+| **D-Pad Left** | Previous Eye Style | Cycle backward through eye styles (O → X → Heart → Default) |
 | **L Trigger** | Open Mouth | Manually open mouth (hold) |
 | **R Trigger** | Close Mouth | Manually close mouth (hold) |
 | **Start (short)** | Play Video / Next | Start video playback or skip to next video |
