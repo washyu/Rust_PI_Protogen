@@ -298,14 +298,27 @@ fn get_shimmer_color(color_index: f64, brightness: f64, palette: ColorPalette) -
         ],
     };
 
-    let palette_index = (color_index.abs() as usize) % colors.len();
-    let (r, g, b) = colors[palette_index];
+    // Smooth interpolation between colors
+    let color_len = colors.len() as f64;
+    let normalized_index = color_index.abs() % (color_len * 10.0); // Scale for smoother transitions
+    let base_index = (normalized_index / 10.0) as usize % colors.len();
+    let next_index = (base_index + 1) % colors.len();
+    let blend = (normalized_index / 10.0) - (base_index as f64);
+
+    let (r1, g1, b1) = colors[base_index];
+    let (r2, g2, b2) = colors[next_index];
+
+    // Linear interpolation between adjacent colors
+    let r = r1 as f64 + (r2 as f64 - r1 as f64) * blend;
+    let g = g1 as f64 + (g2 as f64 - g1 as f64) * blend;
+    let b = b1 as f64 + (b2 as f64 - b1 as f64) * blend;
+
     let bright_factor = (brightness / 255.0).clamp(0.0, 1.0);
 
     LedColor {
-        red: (r as f64 * bright_factor) as u8,
-        green: (g as f64 * bright_factor) as u8,
-        blue: (b as f64 * bright_factor) as u8,
+        red: (r * bright_factor) as u8,
+        green: (g * bright_factor) as u8,
+        blue: (b * bright_factor) as u8,
     }
 }
 
@@ -407,7 +420,7 @@ impl FaceElement for DefaultEyes {
 
         // Render eyes (Arduino rendering logic)
         for x in 1..=PANEL_WIDTH {
-            let mut color2 = color_zero + (x as f64) * 5.0;
+            let mut color = color_zero + (x as f64) * 5.0;
 
             let y_a = (cord_y_a_x - x as f64) / angle_y_a + cord_y_a_y;
             let y_b = (cord_y_b_x - x as f64) / angle_y_b + cord_y_b_y;
@@ -415,7 +428,7 @@ impl FaceElement for DefaultEyes {
             let y_d = 0.8 * (x as f64 - cord_y_d_x).powi(2) + cord_y_d_y;
 
             for y in 0..=PANEL_HEIGHT {
-                color2 -= 3.0;
+                color += 5.0;
                 let y_f = y as f64;
 
                 if y_a < y_f && y_b > y_f && y_c < y_f && y_d > y_f {
@@ -433,7 +446,7 @@ impl FaceElement for DefaultEyes {
                     } else {
                         bright
                     };
-                    draw_pixel_fn.draw(canvas, brightness, color2, x, y,
+                    draw_pixel_fn.draw(canvas, brightness, color, x, y,
                                       context.brightness, context.palette);
                 }
             }
@@ -936,9 +949,11 @@ impl ProtogenFace {
 
 // Gamepad input handler
 fn handle_gamepad_input(gilrs: &mut Gilrs, state: &Arc<Mutex<MaskState>>, protogen: &mut ProtogenFace) {
-    while let Some(Event { id: _, event, time: _ }) = gilrs.next_event() {
+    while let Some(Event { id, event, time: _ }) = gilrs.next_event() {
+        println!("🎮 Event from gamepad {}: {:?}", id, event);
         match event {
             EventType::ButtonPressed(button, _) => {
+                println!("🎮 Button pressed: {:?}", button);
                 let mut s = state.lock().unwrap();
                 match button {
                     // Face buttons
@@ -1097,13 +1112,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check for connected gamepads
     println!("\n🎮 Gamepad Status:");
     let mut gamepad_found = false;
-    for (_id, gamepad) in gilrs.gamepads() {
-        println!("  Connected: {} ({})", gamepad.name(), gamepad.power_info());
+    let mut gamepad_id = None;
+    for (id, gamepad) in gilrs.gamepads() {
+        println!("  Connected: {} (ID: {:?}, Power: {:?})", gamepad.name(), id, gamepad.power_info());
+        println!("  Mapping: {:?}", gamepad.mapping_source());
         gamepad_found = true;
+        gamepad_id = Some(id);
     }
     if !gamepad_found {
-        println!("  No gamepad detected. Controls disabled.");
+        println!("  ⚠️  No gamepad detected. Controls disabled.");
         println!("  Tip: Connect a Bluetooth gamepad and pair it before starting.");
+        println!("  Debug: Check 'ls /dev/input/' and permissions");
+    } else {
+        println!("  ✅ Gamepad ready! Press any button to test...");
     }
 
     // Initialize LED matrix
@@ -1125,37 +1146,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Y/Triangle- Toggle blinking");
     println!("  X/Square  - Cycle color palette");
     println!("  D-Pad ↑↓  - Adjust brightness");
+    println!("  D-Pad ←→  - Cycle eye styles");
     println!("  L Trigger - Open mouth (hold)");
     println!("  R Trigger - Close mouth (hold)");
     println!("  Start     - Reset to defaults\n");
 
     // Animation loop (run indefinitely)
-    loop {
-        // Handle gamepad input (non-blocking)
-        handle_gamepad_input(&mut gilrs, &mask_state, &mut protogen);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        loop {
+            // Handle gamepad input (non-blocking)
+            handle_gamepad_input(&mut gilrs, &mask_state, &mut protogen);
 
-        let mut canvas = matrix.offscreen_canvas();
-        protogen.render(&mut canvas);
-        let _ = matrix.swap(canvas);
+            let mut canvas = matrix.offscreen_canvas();
+            protogen.render(&mut canvas);
+            let _ = matrix.swap(canvas);
 
-        thread::sleep(Duration::from_millis(33)); // ~30 FPS
+            thread::sleep(Duration::from_millis(33)); // ~30 FPS
 
-        // Print status every few seconds
-        if protogen.time_counter as u64 % 90 == 0 {
-            let state = mask_state.lock().unwrap();
-            let idle_secs = audio_level.seconds_since_audio();
-            let current_level = audio_level.get_level();
-            let mode = if state.mic_muted || state.manual_breathing {
-                "MANUAL"
-            } else if idle_secs < IDLE_TIMEOUT_SECS {
-                "MIC"
-            } else {
-                "BREATHING"
-            };
-            let eyes = protogen.registry.get_active_eyes_name();
-            let mouth = protogen.shared_state.mouth_opening;
-            println!("Mode: {} | Eyes: {} | Audio: {:.4} | Brightness: {:.0}% | Palette: {} | Mouth: {:.2}",
-                     mode, eyes, current_level, state.brightness * 100.0, state.color_palette.name(), mouth);
+            // Print status every few seconds
+            if protogen.time_counter as u64 % 90 == 0 {
+                let state = mask_state.lock().unwrap();
+                let idle_secs = audio_level.seconds_since_audio();
+                let current_level = audio_level.get_level();
+                let mode = if state.mic_muted || state.manual_breathing {
+                    "MANUAL"
+                } else if idle_secs < IDLE_TIMEOUT_SECS {
+                    "MIC"
+                } else {
+                    "BREATHING"
+                };
+                let eyes = protogen.registry.get_active_eyes_name();
+                let mouth = protogen.shared_state.mouth_opening;
+                println!("Mode: {} | Eyes: {} | Audio: {:.4} | Brightness: {:.0}% | Palette: {} | Mouth: {:.2}",
+                         mode, eyes, current_level, state.brightness * 100.0, state.color_palette.name(), mouth);
+            }
         }
+    }));
+
+    // Clear the display on exit (whether normal or panic)
+    println!("\n🧹 Clearing display...");
+    let mut canvas = matrix.offscreen_canvas();
+    canvas.clear();
+    let _ = matrix.swap(canvas);
+    println!("✅ Display cleared. Goodbye!\n");
+
+    // Propagate panic if one occurred
+    if let Err(e) = result {
+        std::panic::resume_unwind(e);
     }
+
+    Ok(())
 }
