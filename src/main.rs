@@ -3,6 +3,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use std::any::Any;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{HeapRb, traits::{Consumer, Observer, Producer, Split}};
 use gilrs::{Gilrs, Event, Button, EventType};
@@ -14,6 +15,75 @@ const PANEL_HEIGHT: i32 = 32;
 const MOUTH_MAX_OPENING: f64 = 6.0;
 const SILENT_LIMIT: f64 = 0.05; // Normalized audio threshold (0.0 to 1.0)
 const IDLE_TIMEOUT_SECS: u64 = 30; // Switch to breathing after 30 seconds of silence
+
+// ============================================================================
+// FACE ELEMENT REGISTRY SYSTEM
+// ============================================================================
+// Allows modular, swappable face components (eyes, mouth, nose, accessories)
+// Each element handles its own rendering, state, and input
+
+// Element categories for organization
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ElementCategory {
+    Eyes,
+    Mouth,
+    Nose,
+    Accessory, // Blush, tears, etc.
+}
+
+// Context passed to elements during rendering
+struct RenderContext {
+    // Canvas for drawing
+    // Position offsets from head movement
+    offset_x: f64,
+    offset_y: f64,
+    // Animation time
+    time_counter: f64,
+    // Current brightness and palette
+    brightness: f64,
+    palette: ColorPalette,
+}
+
+// Shared state that elements can read/write
+struct SharedFaceState {
+    mouth_opening: f64,  // 0.0 to MOUTH_MAX_OPENING
+    eye_top: f64,        // Top eyelid position
+    eye_bottom: f64,     // Bottom eyelid position
+    blink_enabled: bool,
+}
+
+// Trait for all face elements
+trait FaceElement {
+    // Metadata
+    fn name(&self) -> &str;
+    fn category(&self) -> ElementCategory;
+    fn description(&self) -> &str { "" }
+
+    // Lifecycle - called every frame
+    fn update(&mut self, shared_state: &mut SharedFaceState, dt: f64);
+
+    // Rendering - draw to canvas
+    fn render(&self, canvas: &mut LedCanvas, context: &RenderContext,
+              shared_state: &SharedFaceState, draw_pixel_fn: &dyn DrawPixelFn);
+
+    // Input handling - return true if button was handled
+    fn handle_button(&mut self, _button: Button, _shared_state: &mut SharedFaceState) -> bool {
+        false
+    }
+
+    // Debug info for status display
+    fn status(&self) -> String { String::new() }
+
+    // Downcasting support for accessing element-specific methods
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+// Helper trait for drawing pixels with state
+trait DrawPixelFn {
+    fn draw(&self, canvas: &mut LedCanvas, bright: f64, color_index: f64,
+            x: i32, y: i32, brightness: f64, palette: ColorPalette);
+}
 
 // Color palettes
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -44,6 +114,114 @@ impl ColorPalette {
             ColorPalette::Purple => "Purple/Pink",
             ColorPalette::Rainbow => "Rainbow",
         }
+    }
+}
+
+// Pixel drawer implementation
+struct PixelDrawer;
+
+impl DrawPixelFn for PixelDrawer {
+    fn draw(&self, canvas: &mut LedCanvas, bright_f: f64, color_index: f64,
+            x: i32, y: i32, brightness: f64, palette: ColorPalette) {
+        // Rotate 180 degrees: new_x = width - x, new_y = height - y
+        let rotated_x = PANEL_WIDTH - x;
+        let rotated_y = PANEL_HEIGHT - 1 - y;
+
+        if rotated_x < 0 || rotated_x >= PANEL_WIDTH || rotated_y < 0 || rotated_y >= PANEL_HEIGHT {
+            return;
+        }
+
+        let adjusted_brightness = bright_f * brightness;
+        let color = get_shimmer_color(color_index, adjusted_brightness, palette);
+
+        // Draw on left panel
+        canvas.set(rotated_x, rotated_y, &color);
+
+        // Mirror on right panel
+        let mirror_x = (PANEL_WIDTH * 2) - 1 - rotated_x;
+        if mirror_x >= PANEL_WIDTH && mirror_x < PANEL_WIDTH * 2 {
+            canvas.set(mirror_x, rotated_y, &color);
+        }
+    }
+}
+
+// Face element registry - manages all active face elements
+struct FaceElementRegistry {
+    elements: Vec<Box<dyn FaceElement>>,
+    active_eyes_index: usize,
+    eyes_variants: Vec<String>, // Names of available eye variants
+}
+
+impl FaceElementRegistry {
+    fn new() -> Self {
+        Self {
+            elements: Vec::new(),
+            active_eyes_index: 0,
+            eyes_variants: Vec::new(),
+        }
+    }
+
+    fn register(&mut self, element: Box<dyn FaceElement>) {
+        // Track eye variants for cycling
+        if element.category() == ElementCategory::Eyes {
+            self.eyes_variants.push(element.name().to_string());
+        }
+        self.elements.push(element);
+    }
+
+    fn update_all(&mut self, shared_state: &mut SharedFaceState, dt: f64) {
+        for element in &mut self.elements {
+            element.update(shared_state, dt);
+        }
+    }
+
+    fn render_all(&self, canvas: &mut LedCanvas, context: &RenderContext,
+                  shared_state: &SharedFaceState, draw_pixel_fn: &dyn DrawPixelFn) {
+        // Render in order: mouth, nose, eyes, accessories
+        let order = [ElementCategory::Mouth, ElementCategory::Nose,
+                     ElementCategory::Eyes, ElementCategory::Accessory];
+
+        for category in &order {
+            for (idx, element) in self.elements.iter().enumerate() {
+                if element.category() != *category {
+                    continue;
+                }
+                // Skip non-active eye variants
+                if *category == ElementCategory::Eyes {
+                    let eye_idx = self.eyes_variants.iter()
+                        .position(|n| n == element.name());
+                    if let Some(ei) = eye_idx {
+                        if ei != self.active_eyes_index {
+                            continue;
+                        }
+                    }
+                }
+                element.render(canvas, context, shared_state, draw_pixel_fn);
+            }
+        }
+    }
+
+    fn handle_button(&mut self, button: Button, shared_state: &mut SharedFaceState) -> bool {
+        // Let elements handle input
+        for element in &mut self.elements {
+            if element.handle_button(button, shared_state) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn cycle_eyes(&mut self) {
+        if !self.eyes_variants.is_empty() {
+            self.active_eyes_index = (self.active_eyes_index + 1) % self.eyes_variants.len();
+            println!("👁️  Eyes: {}", self.eyes_variants[self.active_eyes_index]);
+        }
+    }
+
+    fn get_active_eyes_name(&self) -> String {
+        self.eyes_variants.get(self.active_eyes_index)
+            .cloned()
+            .unwrap_or_else(|| "None".to_string())
     }
 }
 
@@ -129,6 +307,332 @@ fn get_shimmer_color(color_index: f64, brightness: f64, palette: ColorPalette) -
         green: (g as f64 * bright_factor) as u8,
         blue: (b as f64 * bright_factor) as u8,
     }
+}
+
+// ============================================================================
+// DEFAULT FACE ELEMENTS
+// ============================================================================
+
+// DEFAULT EYES - Original blinking eyes from Arduino code
+struct DefaultEyes {
+    blink_sec: i32,
+    blink_frame: i32,
+    blink_flag: bool,
+    last_second: u64,
+    start_time: Instant,
+}
+
+impl DefaultEyes {
+    fn new() -> Self {
+        Self {
+            blink_sec: 0,
+            blink_frame: 0,
+            blink_flag: true,
+            last_second: 0,
+            start_time: Instant::now(),
+        }
+    }
+}
+
+impl FaceElement for DefaultEyes {
+    fn name(&self) -> &str { "Default Eyes" }
+    fn category(&self) -> ElementCategory { ElementCategory::Eyes }
+    fn description(&self) -> &str { "Original protogen eyes with blinking" }
+
+    fn update(&mut self, shared_state: &mut SharedFaceState, _dt: f64) {
+        // Update second counter
+        let current_second = self.start_time.elapsed().as_secs();
+        if current_second != self.last_second {
+            self.blink_sec += 1;
+            self.last_second = current_second;
+        }
+
+        // Blinking logic (Arduino code)
+        if !shared_state.blink_enabled || self.blink_sec < 10 {
+            shared_state.eye_top = 9.0;
+            shared_state.eye_bottom = 1.45;
+            return;
+        }
+
+        let (eye_bottom, eye_top) = match self.blink_frame {
+            0 => (2.0, 8.0),
+            1 => (3.0, 7.0),
+            2 => (4.0, 6.0),
+            3 => (5.0, 5.0),
+            4 => (6.0, 4.0),
+            5 => {
+                self.blink_flag = false;
+                (7.0, 0.1)
+            }
+            _ => (1.45, 9.0),
+        };
+
+        shared_state.eye_bottom = eye_bottom;
+        shared_state.eye_top = eye_top;
+
+        if self.blink_flag {
+            self.blink_frame += 1;
+        } else {
+            self.blink_frame -= 1;
+        }
+
+        if self.blink_frame == -1 {
+            self.blink_sec = 0;
+            self.blink_frame = 0;
+            self.blink_flag = true;
+        }
+    }
+
+    fn render(&self, canvas: &mut LedCanvas, context: &RenderContext,
+              shared_state: &SharedFaceState, draw_pixel_fn: &dyn DrawPixelFn) {
+        let bright = 255.0;
+        let offset_x = context.offset_x;
+        let offset_y = context.offset_y;
+
+        // Eye coordinates (Arduino original)
+        let cord_y_a_x = 0.0 + offset_x;
+        let cord_y_a_y = 25.0 + offset_y;
+        let cord_y_b_x = 2.0 + offset_x;
+        let cord_y_b_y = 31.0 + offset_y;
+        let cord_y_c_x = 10.0 + offset_x;
+        let cord_y_c_y = 0.0 + offset_y;
+        let cord_y_d_x = 18.0 + offset_x;
+        let cord_y_d_y = 24.0 + offset_y;
+
+        let angle_y_a = shared_state.eye_bottom;
+        let angle_y_b = shared_state.eye_top;
+        let angle_y_c = -0.6;
+
+        let color_zero = context.time_counter;
+
+        // Render eyes (Arduino rendering logic)
+        for x in 1..=PANEL_WIDTH {
+            let mut color2 = color_zero + (x as f64) * 5.0;
+
+            let y_a = (cord_y_a_x - x as f64) / angle_y_a + cord_y_a_y;
+            let y_b = (cord_y_b_x - x as f64) / angle_y_b + cord_y_b_y;
+            let y_c = (cord_y_c_x - x as f64) / angle_y_c + cord_y_c_y;
+            let y_d = 0.8 * (x as f64 - cord_y_d_x).powi(2) + cord_y_d_y;
+
+            for y in 0..=PANEL_HEIGHT {
+                color2 -= 3.0;
+                let y_f = y as f64;
+
+                if y_a < y_f && y_b > y_f && y_c < y_f && y_d > y_f {
+                    let brightness = if y_a < y_f - 1.0 && y_b > y_f + 1.0 &&
+                                        y_c < y_f - 1.0 && y_d > y_f + 1.0 {
+                        bright
+                    } else if y_a > y_f - 1.0 {
+                        bright * (y_f - y_a).max(0.0)
+                    } else if y_b < y_f + 1.0 {
+                        bright * (y_b - y_f).max(0.0)
+                    } else if y_c > y_f - 1.0 {
+                        bright * (y_f - y_c).max(0.0)
+                    } else if y_d < y_f + 1.0 {
+                        bright * (y_d - y_f).max(0.0)
+                    } else {
+                        bright
+                    };
+                    draw_pixel_fn.draw(canvas, brightness, color2, x, y,
+                                      context.brightness, context.palette);
+                }
+            }
+        }
+    }
+
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+}
+
+// DEFAULT MOUTH - Audio-reactive mouth with microphone support
+struct DefaultMouth {
+    mouth_opening: f64,
+    breathing_phase: f64,
+    audio_level: Arc<AudioLevel>,
+}
+
+impl DefaultMouth {
+    fn new(audio_level: Arc<AudioLevel>) -> Self {
+        Self {
+            mouth_opening: 0.0,
+            breathing_phase: 0.0,
+            audio_level,
+        }
+    }
+}
+
+impl FaceElement for DefaultMouth {
+    fn name(&self) -> &str { "Default Mouth" }
+    fn category(&self) -> ElementCategory { ElementCategory::Mouth }
+    fn description(&self) -> &str { "Audio-reactive mouth with microphone input" }
+
+    fn update(&mut self, shared_state: &mut SharedFaceState, dt: f64) {
+        // Use manual override if set
+        if let Some(manual) = shared_state.blink_enabled.then_some(()).and(None) {
+            // This path isn't used for manual mouth - handled in MaskState
+        }
+
+        // Determine if using mic or breathing
+        let seconds_idle = self.audio_level.seconds_since_audio();
+        let use_breathing = seconds_idle >= IDLE_TIMEOUT_SECS;
+
+        if use_breathing {
+            // Breathing animation
+            self.breathing_phase += 0.05;
+            let breathing = (self.breathing_phase.sin() + 1.0) / 2.0;
+            let target_mouth = breathing * MOUTH_MAX_OPENING;
+
+            if self.mouth_opening < target_mouth {
+                self.mouth_opening += 0.1;
+            } else {
+                self.mouth_opening -= 0.1;
+            }
+        } else {
+            // Microphone input
+            let mic_level = self.audio_level.get_level();
+
+            if mic_level > SILENT_LIMIT {
+                self.mouth_opening += 1.5;
+            } else {
+                self.mouth_opening -= 0.8;
+            }
+        }
+
+        // Clamp
+        self.mouth_opening = self.mouth_opening.clamp(0.0, MOUTH_MAX_OPENING);
+        shared_state.mouth_opening = self.mouth_opening;
+    }
+
+    fn render(&self, canvas: &mut LedCanvas, context: &RenderContext,
+              shared_state: &SharedFaceState, draw_pixel_fn: &dyn DrawPixelFn) {
+        let bright = 255.0;
+        let offset_x = context.offset_x;
+        let offset_y = context.offset_y;
+        let mouth = shared_state.mouth_opening;
+
+        // Mouth coordinates (Arduino original)
+        let cord_m_a_x = 7.0 + offset_x;
+        let cord_m_a_y = 31.0 + offset_y;
+        let cord_m_b_x = 7.0 + offset_x;
+        let cord_m_b_y = 18.0 + offset_y + mouth / 2.0;
+        let cord_m_c_x = 0.0 + offset_x;
+        let cord_m_c_y = -32.0 + offset_y;
+        let cord_m_d_x = 0.0 + offset_x;
+        let cord_m_d_y = -37.0 + offset_y - mouth;
+        let cord_m_e_x = 0.0 + offset_x;
+        let cord_m_e_y = 57.0 + offset_y;
+        let cord_m_f_x = 0.0 + offset_x;
+        let cord_m_f_y = 52.0 + offset_y - mouth * 1.3;
+        let cord_m_g_x = 0.0 + offset_x;
+        let cord_m_g_y = -2.0 + offset_y;
+
+        let angle_m_a = 1.3;
+        let angle_m_b = 1.9 - mouth / 10.0;
+        let angle_m_c = -1.2;
+        let angle_m_d = -1.2;
+        let angle_m_e = 1.2;
+        let angle_m_f = 1.2;
+        let angle_m_g = -1.6;
+
+        let color_zero = context.time_counter;
+
+        // Render mouth
+        for x in 1..=PANEL_WIDTH {
+            let mut color = color_zero + (x as f64) * 5.0;
+
+            let m_a = (cord_m_a_x - x as f64) / angle_m_a + cord_m_a_y;
+            let m_b = (cord_m_b_x - x as f64) / angle_m_b + cord_m_b_y;
+            let m_c = (cord_m_c_x - x as f64) / angle_m_c + cord_m_c_y;
+            let m_d = (cord_m_d_x - x as f64) / angle_m_d + cord_m_d_y;
+            let m_e = (cord_m_e_x - x as f64) / angle_m_e + cord_m_e_y;
+            let m_f = (cord_m_f_x - x as f64) / angle_m_f + cord_m_f_y;
+            let m_g = (cord_m_g_x - x as f64) / angle_m_g + cord_m_g_y;
+
+            for y in 0..=PANEL_HEIGHT {
+                color += 5.0;
+                let y_f = y as f64;
+
+                if (m_e > y_f && m_f < y_f && m_c > y_f) ||
+                   (m_c > y_f && m_d < y_f && m_e > y_f && m_b < y_f) ||
+                   (m_b < y_f && m_a > y_f && m_g > y_f && m_d < y_f) {
+                    draw_pixel_fn.draw(canvas, bright, color, x, y,
+                                      context.brightness, context.palette);
+                }
+            }
+        }
+    }
+
+    fn handle_button(&mut self, button: Button, shared_state: &mut SharedFaceState) -> bool {
+        match button {
+            Button::LeftTrigger | Button::LeftTrigger2 => {
+                shared_state.mouth_opening = MOUTH_MAX_OPENING;
+                println!("😮 Mouth: OPEN (manual)");
+                true
+            }
+            Button::RightTrigger | Button::RightTrigger2 => {
+                shared_state.mouth_opening = 0.0;
+                println!("😐 Mouth: CLOSED (manual)");
+                true
+            }
+            _ => false
+        }
+    }
+
+    fn status(&self) -> String {
+        format!("Mouth: {:.2}", self.mouth_opening)
+    }
+
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+}
+
+// DEFAULT NOSE - Simple nose element
+struct DefaultNose;
+
+impl FaceElement for DefaultNose {
+    fn name(&self) -> &str { "Default Nose" }
+    fn category(&self) -> ElementCategory { ElementCategory::Nose }
+    fn description(&self) -> &str { "Original protogen nose" }
+
+    fn update(&mut self, _shared_state: &mut SharedFaceState, _dt: f64) {
+        // Nose is static, no update needed
+    }
+
+    fn render(&self, canvas: &mut LedCanvas, context: &RenderContext,
+              _shared_state: &SharedFaceState, draw_pixel_fn: &dyn DrawPixelFn) {
+        let bright = 255.0;
+        let offset_x = context.offset_x;
+        let offset_y = context.offset_y;
+
+        // Nose coordinates (Arduino original)
+        let cord_n_a_x = 56.0 + offset_x;
+        let cord_n_a_y = 27.0 + offset_y;
+        let cord_n_b_x = 53.0 + offset_x;
+        let cord_n_b_y = 23.0 + offset_y;
+
+        let color_zero = context.time_counter;
+
+        // Render nose
+        for x in 1..=PANEL_WIDTH {
+            let mut color = color_zero + (x as f64) * 5.0;
+
+            let n_a = -0.5 * (x as f64 - cord_n_a_x).powi(2) + cord_n_a_y;
+            let n_b = -0.1 * (x as f64 - cord_n_b_x).powi(2) + cord_n_b_y;
+
+            for y in 0..=PANEL_HEIGHT {
+                color += 5.0;
+                let y_f = y as f64;
+
+                if n_b < y_f && n_a > y_f {
+                    draw_pixel_fn.draw(canvas, bright, color, x, y,
+                                      context.brightness, context.palette);
+                }
+            }
+        }
+    }
+
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
 }
 
 struct ProtogenFace {
