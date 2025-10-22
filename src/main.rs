@@ -581,7 +581,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut gamepad_found = false;
     let mut gamepad_id = None;
     for (id, gamepad) in gilrs.gamepads() {
-        println!("  Connected: {} (ID: {:?}, Power: {})", gamepad.name(), id, gamepad.power_info());
+        println!("  Connected: {} (ID: {:?}, Power: {:?})", gamepad.name(), id, gamepad.power_info());
         println!("  Mapping: {}", gamepad.mapping_source());
         gamepad_found = true;
         gamepad_id = Some(id);
