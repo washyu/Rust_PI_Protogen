@@ -21,11 +21,11 @@ impl ButtonTracker {
 #[derive(Debug, Clone)]
 pub struct MaskState {
     pub mic_muted: bool,           // Force breathing mode
-    pub manual_breathing: bool,     // Override auto-idle
     pub brightness: f64,           // 0.0 to 1.0
     pub color_palette: ColorPalette,
     pub blink_enabled: bool,
-    pub manual_mouth_override: Option<f64>, // Manual mouth control
+    pub manual_mouth_mode: bool,   // Enable manual mouth movement mode
+    pub mouth_analog_value: f64,   // Analog trigger value (0.0 to 1.0)
     pub video_mode: bool,          // Video playback active
     pub video_action: VideoAction, // What to do with video
 }
@@ -42,11 +42,11 @@ impl MaskState {
     pub fn new() -> Self {
         Self {
             mic_muted: false,
-            manual_breathing: false,
             brightness: 1.0,
             color_palette: ColorPalette::Forest,
             blink_enabled: true,
-            manual_mouth_override: None,
+            manual_mouth_mode: false,
+            mouth_analog_value: 0.0,
             video_mode: false,
             video_action: VideoAction::None,
         }
@@ -74,9 +74,9 @@ pub fn handle_gamepad_input<T: CycleEyes>(gilrs: &mut Gilrs, state: &Arc<Mutex<M
                         s.mic_muted = !s.mic_muted;
                         println!("🎤 Microphone {}", if s.mic_muted { "MUTED" } else { "ACTIVE" });
                     }
-                    Button::East => {   // B/Circle button - Toggle manual breathing
-                        s.manual_breathing = !s.manual_breathing;
-                        println!("💨 Manual breathing {}", if s.manual_breathing { "ON" } else { "OFF" });
+                    Button::East => {   // B/Circle button - Toggle manual mouth mode
+                        s.manual_mouth_mode = !s.manual_mouth_mode;
+                        println!("👄 Manual mouth mode {}", if s.manual_mouth_mode { "ON" } else { "OFF" });
                     }
                     Button::North => {  // Y/Triangle button - Toggle blinking
                         s.blink_enabled = !s.blink_enabled;
@@ -107,15 +107,7 @@ pub fn handle_gamepad_input<T: CycleEyes>(gilrs: &mut Gilrs, state: &Arc<Mutex<M
                         return; // Exit early since lock is dropped
                     }
 
-                    // Shoulder buttons for manual mouth control
-                    Button::LeftTrigger | Button::LeftTrigger2 => {
-                        s.manual_mouth_override = Some(MOUTH_MAX_OPENING); // Fully open
-                        println!("😮 Mouth: OPEN (manual)");
-                    }
-                    Button::RightTrigger | Button::RightTrigger2 => {
-                        s.manual_mouth_override = Some(0.0); // Fully closed
-                        println!("😐 Mouth: CLOSED (manual)");
-                    }
+                    // Triggers removed - now using analog axis for smooth control
 
                     // Start button is handled on release to detect short vs long press
                     Button::Start => {
@@ -127,12 +119,6 @@ pub fn handle_gamepad_input<T: CycleEyes>(gilrs: &mut Gilrs, state: &Arc<Mutex<M
             }
             EventType::ButtonReleased(button, _) => {
                 match button {
-                    Button::LeftTrigger | Button::LeftTrigger2 |
-                    Button::RightTrigger | Button::RightTrigger2 => {
-                        let mut s = state.lock().unwrap();
-                        s.manual_mouth_override = None;
-                        println!("🤖 Mouth: AUTO");
-                    }
                     Button::Start => {
                         // Check press duration for short vs long press
                         if let Some(pressed_at) = button_tracker.start_pressed_at.take() {
@@ -159,6 +145,29 @@ pub fn handle_gamepad_input<T: CycleEyes>(gilrs: &mut Gilrs, state: &Arc<Mutex<M
                         }
                     }
                     _ => {}
+                }
+            }
+            EventType::AxisChanged(axis, value, code) => {
+                // Handle left trigger - code 10 is left trigger, code 9 is right trigger
+                use gilrs::Axis;
+
+                // Debug: print code to verify which trigger
+                // Check if this is code 10 (left trigger) by examining the debug output
+                // For now, just check axis and filter by code value
+                let code_value = format!("{:?}", code);
+                let is_left_trigger = axis == Axis::LeftZ ||
+                    (axis == Axis::Unknown && code_value.contains("code: 10"));
+
+                if is_left_trigger {
+                    let mut s = state.lock().unwrap();
+                    // Use only positive half: 0.0 (closed) to 1.0 (fully open)
+                    // Triggers typically go from -1.0 (not pressed) to 1.0 (fully pressed)
+                    let analog_value = (value.max(0.0).clamp(0.0, 1.0)) as f64;
+                    s.mouth_analog_value = analog_value;
+                    // Only print when in manual mouth mode
+                    if s.manual_mouth_mode {
+                        println!("👄 Mouth analog: {:.2}", analog_value);
+                    }
                 }
             }
             _ => {}

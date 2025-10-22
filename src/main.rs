@@ -58,6 +58,7 @@ struct SharedFaceState {
     eye_top: f64,        // Top eyelid position
     eye_bottom: f64,     // Bottom eyelid position
     blink_enabled: bool,
+    manual_mouth_active: bool,  // Skip mouth updates when true
 }
 
 // Trait for all face elements
@@ -147,7 +148,17 @@ impl FaceElementRegistry {
     }
 
     fn update_all(&mut self, shared_state: &mut SharedFaceState, dt: f64) {
-        for element in &mut self.elements {
+        for (idx, element) in self.elements.iter_mut().enumerate() {
+            // For eyes, only update the active variant
+            if element.category() == ElementCategory::Eyes {
+                let eye_idx = self.eyes_variants.iter()
+                    .position(|n| n == element.name());
+                if let Some(ei) = eye_idx {
+                    if ei != self.active_eyes_index {
+                        continue; // Skip non-active eye variants
+                    }
+                }
+            }
             element.update(shared_state, dt);
         }
     }
@@ -258,28 +269,43 @@ impl FaceElement for DefaultEyes {
         }
 
         // Blinking logic (Arduino code)
-        if !shared_state.blink_enabled || self.blink_sec < 10 {
+        if !shared_state.blink_enabled {
             shared_state.eye_top = 9.0;
             shared_state.eye_bottom = 1.45;
             return;
         }
 
-        let (eye_bottom, eye_top) = match self.blink_frame {
-            0 => (2.0, 8.0),
-            1 => (3.0, 7.0),
-            2 => (4.0, 6.0),
-            3 => (5.0, 5.0),
-            4 => (6.0, 4.0),
-            5 => {
-                self.blink_flag = false;
-                (7.0, 0.1)
-            }
-            _ => (1.45, 9.0),
-        };
+        // Early return if not time to blink yet
+        if self.blink_sec < 10 {
+            shared_state.eye_top = 9.0;
+            shared_state.eye_bottom = 1.45;
+            return;
+        }
 
-        shared_state.eye_bottom = eye_bottom;
-        shared_state.eye_top = eye_top;
+        // Set eye positions based on CURRENT frame (before advancing)
+        // This matches Arduino: check frame, set values, then advance
+        if self.blink_frame == 0 {
+            shared_state.eye_bottom = 2.0;
+            shared_state.eye_top = 8.0;
+        } else if self.blink_frame == 1 {
+            shared_state.eye_bottom = 3.0;
+            shared_state.eye_top = 7.0;
+        } else if self.blink_frame == 2 {
+            shared_state.eye_bottom = 4.0;
+            shared_state.eye_top = 6.0;
+        } else if self.blink_frame == 3 {
+            shared_state.eye_bottom = 5.0;
+            shared_state.eye_top = 5.0;
+        } else if self.blink_frame == 4 {
+            shared_state.eye_bottom = 6.0;
+            shared_state.eye_top = 4.0;
+        } else if self.blink_frame == 5 {
+            shared_state.eye_bottom = 7.0;
+            shared_state.eye_top = 0.1;
+            self.blink_flag = false;
+        }
 
+        // Advance frame (Arduino code pattern)
         if self.blink_flag {
             self.blink_frame += 1;
         } else {
@@ -377,6 +403,11 @@ impl FaceElement for DefaultMouth {
     fn description(&self) -> &str { "Audio-reactive mouth with microphone input" }
 
     fn update(&mut self, shared_state: &mut SharedFaceState, dt: f64) {
+        // Skip update if manual mouth control is active
+        if shared_state.manual_mouth_active {
+            return;
+        }
+
         // Determine if using mic or breathing
         let seconds_idle = self.audio_level.seconds_since_audio();
         let use_breathing = seconds_idle >= IDLE_TIMEOUT_SECS;
@@ -783,6 +814,7 @@ impl ProtogenFace {
                 eye_top: 9.0,
                 eye_bottom: 1.45,
                 blink_enabled: true,
+                manual_mouth_active: false,
             },
             pixel_drawer: PixelDrawer,
         }
@@ -810,15 +842,21 @@ impl ProtogenFace {
         self.shared_state.blink_enabled = state.blink_enabled;
         let brightness = state.brightness;
         let palette = state.color_palette;
+        let manual_mouth_mode = state.manual_mouth_mode;
+        let mouth_analog_value = state.mouth_analog_value;
 
-        // Handle manual mouth override
-        if let Some(manual_mouth) = state.manual_mouth_override {
-            self.shared_state.mouth_opening = manual_mouth;
-        }
+        // Set manual mouth flag to skip mouth element updates when in manual mode
+        self.shared_state.manual_mouth_active = manual_mouth_mode;
         drop(state);
 
-        // Update all elements
+        // Update all elements (mouth will skip if manual_mouth_active is true)
         self.registry.update_all(&mut self.shared_state, 0.033); // ~30fps
+
+        // Apply manual mouth analog control when in manual mode
+        if manual_mouth_mode {
+            // Scale analog value to mouth opening range
+            self.shared_state.mouth_opening = mouth_analog_value * MOUTH_MAX_OPENING;
+        }
 
         // Clear canvas
         canvas.clear();
@@ -1008,8 +1046,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Protogen face status
                 let idle_secs = audio_level.seconds_since_audio();
                 let current_level = audio_level.get_level();
-                let mode = if state.mic_muted || state.manual_breathing {
-                    "MANUAL"
+                let mode = if state.manual_mouth_mode {
+                    "MANUAL_MOUTH"
+                } else if state.mic_muted {
+                    "BREATHING"
                 } else if idle_secs < IDLE_TIMEOUT_SECS {
                     "MIC"
                 } else {
